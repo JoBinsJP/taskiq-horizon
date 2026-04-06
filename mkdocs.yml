@@ -1,0 +1,34 @@
+site_name: TaskIQ Horizon
+site_description: A beautiful, real-time dashboard and robust configuration system for TaskIQ queues, inspired by Laravel Horizon.
+repo_name: taskiq-horizon
+repo_url: https://github.com/your-org/taskiq-horizon
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Welcome: index.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Dashboard: dashboard.md
+  - Architecture: architecture.md

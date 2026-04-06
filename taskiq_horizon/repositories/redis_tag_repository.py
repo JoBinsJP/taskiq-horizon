@@ -1,0 +1,42 @@
+from typing import List
+from redis.asyncio import Redis
+
+from taskiq_horizon.contracts.tag_repository import TagRepository
+from taskiq_horizon.config import HorizonConfig
+
+class RedisTagRepository(TagRepository):
+    def __init__(self, redis: Redis, config: HorizonConfig):
+        self.redis = redis
+        self.config = config
+        self.prefix = config.prefix
+
+    def _key(self, name: str) -> str:
+        return f"{self.prefix}{name}"
+
+    async def monitored(self, tags: List[str]) -> List[str]:
+        if not tags:
+            return []
+        monitors = await self.monitors()
+        return [tag for tag in tags if tag in monitors]
+
+    async def monitor(self, tag: str) -> None:
+        await self.redis.sadd(self._key('monitoring'), tag)
+
+    async def stop_monitoring(self, tag: str) -> None:
+        await self.redis.srem(self._key('monitoring'), tag)
+
+    async def monitors(self) -> List[str]:
+        members = await self.redis.smembers(self._key('monitoring'))
+        return [m.decode('utf-8') for m in members]
+
+    async def add(self, task_id: str, tags: List[str]) -> None:
+        async with self.redis.pipeline() as pipe:
+            for tag in tags:
+                pipe.zadd(self._key(f"tags:{tag}"), {task_id: 0})
+            await pipe.execute()
+
+    async def count(self, tag: str) -> int:
+        return await self.redis.zcard(self._key(f"tags:{tag}"))
+
+    async def forget(self, tag: str) -> None:
+        await self.redis.delete(self._key(f"tags:{tag}"))
