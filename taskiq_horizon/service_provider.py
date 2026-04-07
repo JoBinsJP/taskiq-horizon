@@ -228,3 +228,46 @@ def _mount_spa(app) -> None:
         logger.info(f"Horizon SPA assets mounted from {dashboard_dir}")
     except Exception as e:
         logger.warning(f"Horizon dashboard assets not found: {e}")
+
+
+def commands() -> list:
+    """Dynamically expose the package console commands."""
+    from taskiq_horizon.console.commands.horizon import HorizonCommand
+    from taskiq_horizon.console.commands.horizon_continue import HorizonContinueCommand
+    from taskiq_horizon.console.commands.horizon_pause import HorizonPauseCommand
+    from taskiq_horizon.console.commands.horizon_snapshot import HorizonSnapshotCommand
+    from taskiq_horizon.console.commands.horizon_terminate import HorizonTerminateCommand
+
+    return [
+        HorizonCommand(),
+        HorizonSnapshotCommand(),
+        HorizonPauseCommand(),
+        HorizonContinueCommand(),
+        HorizonTerminateCommand(),
+    ]
+
+
+class HorizonServiceProvider:
+    """
+    OOP Service Provider overlay for TaskIQ Horizon.
+    Provides Laravel 1:1 parity with the host framework's ServiceProvider pattern.
+    """
+
+    def __init__(self, app: Container):
+        self.app = app
+
+    def register(self):
+        """Bind all Horizon services as lazy singletons."""
+        register_services(self.app)
+
+    def boot(self):
+        """Bootstrap Horizon services."""
+        pass
+
+    def mount_dashboard(self, fastapi_app):
+        """Mount the Horizon API routes + Vue SPA onto a FastAPI application."""
+        mount_dashboard(fastapi_app, self.app)
+
+    def commands(self) -> list:
+        """Dynamically expose the package console commands."""
+        return commands()
