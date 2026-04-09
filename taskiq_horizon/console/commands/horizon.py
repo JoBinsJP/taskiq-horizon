@@ -14,7 +14,7 @@ class HorizonCommand(Command):
         from taskiq_horizon.master_supervisor import MasterSupervisor
 
         from app.core.container import container
-        from app.providers.app_provider import boot
+        from app.core.application import boot
         from config.settings import settings
 
         self.line("<info>Booting Horizon configuration...</info>")

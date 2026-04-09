@@ -11,7 +11,7 @@ class HorizonContinueCommand(Command):
         import logging
 
         from app.core.container import container
-        from app.providers.app_provider import boot
+        from app.core.application import boot
 
         logging.basicConfig(level=logging.ERROR)
         boot()
