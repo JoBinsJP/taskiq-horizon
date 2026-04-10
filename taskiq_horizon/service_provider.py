@@ -120,7 +120,12 @@ def _make_tag_repo(container: Container):
 def _make_workload_repo(container: Container):
     from taskiq_horizon.repositories.redis_workload_repository import RedisWorkloadRepository
 
-    return RedisWorkloadRepository(None, container.make("horizon.wait_time"))
+    return RedisWorkloadRepository(
+        redis=container.make("horizon.redis"),
+        wait_time=container.make("horizon.wait_time"),
+        supervisor_repo=container.make("horizon.supervisors"),
+    )
+
 
 
 def _make_master_repo(container: Container):
@@ -146,11 +151,20 @@ def _make_wait_time(container: Container):
 
     redis = container.make("horizon.redis")
     metrics = container.make("horizon.metrics")
+    supervisor_repo = container.make("horizon.supervisors")
 
     async def queue_len(q):
         return await redis.llen(q)
 
-    return WaitTimeCalculator(metrics, queue_length_fetcher=queue_len)
+    async def supervisor_fetcher():
+        return await supervisor_repo.all_supervisors()
+
+    return WaitTimeCalculator(
+        metrics,
+        queue_length_fetcher=queue_len,
+        supervisor_fetcher=supervisor_fetcher,
+    )
+
 
 
 def _make_command_queue(container: Container):
