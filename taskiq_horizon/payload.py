@@ -28,6 +28,7 @@ class TaskPayload:
         self.decoded = {
             "uuid": self.message.task_id,
             "id": self.message.task_id,
+            "task_name": self.message.task_name,
             "displayName": self.message.task_name,
             "job": self.message.task_name,
             "maxTries": self.message.labels.get("max_retries", 0),

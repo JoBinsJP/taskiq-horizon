@@ -37,7 +37,7 @@ class HorizonMiddleware(TaskiqMiddleware):
         try:
             # We treat the broker/queue name loosely here. TaskIQ has 'queues' but usually
             # it's determined per broker. We'll use 'default' if None.
-            queue = message.labels.get("queue", "default")
+            queue = message.labels.get("queue_name", "default")
             await self.jobs.pushed(connection="redis", queue=queue, payload=payload)
             
             # Store monitored tags
@@ -55,7 +55,7 @@ class HorizonMiddleware(TaskiqMiddleware):
         """Executed on worker before task starts."""
         try:
             payload = TaskPayload(message).prepare(self.config)
-            queue = message.labels.get("queue", "default")
+            queue = message.labels.get("queue_name", "default")
             
             await self.jobs.reserved(connection="redis", queue=queue, payload=payload)
             
@@ -71,7 +71,7 @@ class HorizonMiddleware(TaskiqMiddleware):
         """Executed on worker if task fails."""
         try:
             payload = TaskPayload(message).prepare(self.config)
-            queue = message.labels.get("queue", "default")
+            queue = message.labels.get("queue_name", "default")
             
             await self.jobs.failed(
                 exception=exception,
@@ -97,7 +97,7 @@ class HorizonMiddleware(TaskiqMiddleware):
                 return
                 
             payload = TaskPayload(message).prepare(self.config)
-            queue = message.labels.get("queue", "default")
+            queue = message.labels.get("queue_name", "default")
             
             await self.jobs.completed(payload, failed=False, silenced=payload.is_silenced())
             
