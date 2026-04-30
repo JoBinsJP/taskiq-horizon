@@ -13,11 +13,20 @@ The HOST app only needs to:
 
 from __future__ import annotations
 
+import html
+import json
 import logging
 from pathlib import Path
 from typing import Any, Protocol
 
 logger = logging.getLogger("horizon.provider")
+
+_UPSTREAM_DIST_FILES = (
+    "styles.css",
+    "styles-dark.css",
+    "app.css",
+    "app.js",
+)
 
 
 class Container(Protocol):
@@ -57,14 +66,21 @@ def register_services(container: Container) -> None:
 # ── Dashboard Mounting ───────────────────────────────────────────────────────
 
 
-def mount_dashboard(app, container: Container, *, broker=None, batch_repo=None) -> None:
+def mount_dashboard(
+    app,
+    container: Container,
+    *,
+    broker=None,
+    batch_repo=None,
+    dashboard_dist_dir: str | Path | None = None,
+) -> None:
     """
     Mount the Horizon API routes + Vue SPA onto a FastAPI application.
 
-    All routes are namespaced under /horizon:
-      - /horizon/api/*   — JSON API
-      - /horizon/assets/* — static JS/CSS
-      - /horizon          — SPA catch-all
+    All routes are namespaced under HorizonConfig.path (default: /horizon):
+      - /<path>/api/*    — JSON API
+      - /<path>/assets/* — static fallback assets
+      - /<path>          — SPA catch-all
 
     Call this during the FastAPI lifespan, after all services are registered.
     Mirrors HorizonServiceProvider::registerRoutes().
@@ -73,8 +89,11 @@ def mount_dashboard(app, container: Container, *, broker=None, batch_repo=None) 
 
     from taskiq_horizon.api.routes import router as horizon_router
 
+    config = container.make("horizon.config")
+    mount_prefix = _dashboard_mount_prefix(config)
+
     # Inject repos into app.state (Horizon routes read from here)
-    app.state.horizon_config = container.make("horizon.config")
+    app.state.horizon_config = config
     app.state.horizon_job_repo = container.make("horizon.jobs")
     app.state.horizon_metrics_repo = container.make("horizon.metrics")
     app.state.horizon_tag_repo = container.make("horizon.tags")
@@ -88,17 +107,17 @@ def mount_dashboard(app, container: Container, *, broker=None, batch_repo=None) 
     if batch_repo is not None:
         app.state.horizon_batch_repo = batch_repo
 
-    # Mount API under /horizon — routes.py has prefix="/api", so final
-    # paths are /horizon/api/stats, /horizon/api/masters, etc.
-    horizon_api = APIRouter(prefix="/horizon")
+    # Mount API under the configured dashboard path. routes.py has prefix="/api",
+    # so final paths are e.g. /horizon/api/stats, /horizon/api/masters, etc.
+    horizon_api = APIRouter(prefix=mount_prefix)
     horizon_api.include_router(horizon_router)
     app.include_router(horizon_api)
 
     # Mount SPA static assets + catch-all (AFTER API routes so
     # the catch-all doesn't intercept /horizon/api/* requests)
-    _mount_spa(app)
+    _mount_spa(app, config=config, dashboard_dist_dir=dashboard_dist_dir)
 
-    logger.info("Horizon dashboard mounted at /horizon")
+    logger.info("Horizon dashboard mounted at %s", mount_prefix or "/")
 
 
 # ── Private Factories (mirrors ServiceBindings trait) ────────────────────────
@@ -189,61 +208,136 @@ def _make_middleware(container: Container):
 # ── SPA Mounting (mirrors HorizonServiceProvider::registerDashboard) ─────────
 
 
-def _mount_spa(app) -> None:
+def _mount_spa(app, *, config, dashboard_dist_dir: str | Path | None = None) -> None:
     """Mount the Horizon Vue SPA static files and the catch-all index route."""
     try:
-        import taskiq_horizon
-
-        # The built SPA lives at taskiq_horizon/dashboard/dashboard/
-        dashboard_dir = Path(taskiq_horizon.__file__).parent / "dashboard" / "dashboard"
-        index_html = dashboard_dir / "index.html"
-
-        if not dashboard_dir.is_dir() or not index_html.exists():
-            logger.warning(f"Horizon dashboard assets not found at {dashboard_dir}")
+        dist_dir = _resolve_dashboard_dist_dir(dashboard_dist_dir)
+        if dist_dir is None:
+            logger.warning("Horizon dashboard dist not found. Run 'npm run build' in the dashboard/ directory.")
             return
 
-        from fastapi import APIRouter
-        from fastapi.responses import HTMLResponse
         from fastapi.staticfiles import StaticFiles
 
-        # Serve JS/CSS/asset files
+        assets_prefix = _dashboard_assets_prefix(config)
         app.mount(
-            "/horizon/assets",
-            StaticFiles(directory=str(dashboard_dir)),
+            assets_prefix,
+            StaticFiles(directory=str(dist_dir)),
             name="horizon-assets",
         )
 
-        # Read and patch index.html.
-        # IMPORTANT: We inject a <script> to set path='horizon' instead of using
-        # str.replace("path: ''", ...) because that would ALSO match 'proxy_path: ''',
-        # corrupting the config and causing cascading /horizon prefixes.
-        spa_content = index_html.read_text()
+        spa_content = _render_dashboard(config=config, dist_dir=dist_dir, assets_prefix=assets_prefix)
+        _mount_spa_routes(app, spa_content, config=config)
+        logger.info("Horizon SPA mounted from %s", dist_dir)
+    except Exception as e:
+        logger.warning("Horizon dashboard assets not found: %s", e)
 
-        # Set Horizon.path so app.js computes basePath = '/horizon'
-        # (must run AFTER the inline <script> that creates window.Horizon)
-        spa_content = spa_content.replace(
-            "</head>",
-            '<script>window.Horizon.path = "horizon";</script>\n</head>',
-        )
 
-        # Rewrite static asset paths
-        spa_content = spa_content.replace('src="/app.js"', 'src="/horizon/assets/app.js"')
-        spa_content = spa_content.replace('href="/app.css"', 'href="/horizon/assets/app.css"')
-        spa_content = spa_content.replace('href="/styles.css"', 'href="/horizon/assets/styles.css"')
-        spa_content = spa_content.replace('href="/styles-dark.css"', 'href="/horizon/assets/styles-dark.css"')
+def _mount_spa_routes(app, spa_content: str, *, config) -> None:
+    """Register the SPA index + catch-all routes for the configured dashboard path."""
+    from fastapi import APIRouter
+    from fastapi.responses import HTMLResponse
 
-        spa_router = APIRouter()
+    mount_prefix = _dashboard_mount_prefix(config)
+    spa_router = APIRouter()
 
-        @spa_router.get("/horizon", response_class=HTMLResponse, include_in_schema=False)
-        @spa_router.get("/horizon/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+    if mount_prefix:
+
+        @spa_router.get(mount_prefix, response_class=HTMLResponse, include_in_schema=False)
+        @spa_router.get(f"{mount_prefix}/{{path:path}}", response_class=HTMLResponse, include_in_schema=False)
         async def horizon_spa(path: str = ""):
             return spa_content
 
-        app.include_router(spa_router)
+    else:
 
-        logger.info(f"Horizon SPA assets mounted from {dashboard_dir}")
-    except Exception as e:
-        logger.warning(f"Horizon dashboard assets not found: {e}")
+        @spa_router.get("/", response_class=HTMLResponse, include_in_schema=False)
+        @spa_router.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+        async def horizon_spa(path: str = ""):
+            return spa_content
+
+    app.include_router(spa_router)
+
+
+def _resolve_dashboard_dist_dir(dashboard_dist_dir: str | Path | None) -> Path | None:
+    """Resolve the dashboard dist directory containing the built CSS/JS files."""
+    candidates: list[Path] = []
+    if dashboard_dist_dir is not None:
+        candidates.append(Path(dashboard_dist_dir).expanduser())
+    candidates.append(Path(__file__).resolve().parent / "dashboard" / "dist")
+
+    for candidate in candidates:
+        if candidate.is_dir() and all((candidate / filename).is_file() for filename in _UPSTREAM_DIST_FILES):
+            return candidate
+    return None
+
+
+def _render_dashboard(*, config, dist_dir: Path, assets_prefix: str) -> str:
+    """Render the dashboard shell with inline styles and an external JS bundle."""
+    template_path = Path(__file__).resolve().parent / "dashboard" / "layout.html"
+    template = template_path.read_text()
+
+    styles = (dist_dir / "styles.css").read_text()
+    styles_dark = (dist_dir / "styles-dark.css").read_text()
+    app_css = (dist_dir / "app.css").read_text()
+
+    title = "Alatazone"
+    if getattr(config, "name", ""):
+        title = f"{title} - {config.name}"
+
+    header = "<strong>Alatazone</strong>"
+    if getattr(config, "name", ""):
+        header = f"{header} - {html.escape(config.name)}"
+
+    inline_css = (
+        f'<style data-scheme="light">{styles}</style>\n'
+        f'<style data-scheme="dark">{styles_dark}</style>\n'
+        f"<style>{app_css}</style>"
+    )
+    inline_js = (
+        "<script>\n"
+        f"window.Horizon = {json.dumps(_dashboard_script_variables(config))};\n"
+        "</script>"
+        f'\n<script type="module" src="{assets_prefix}/app.js"></script>'
+    )
+
+    return (
+        template.replace("__TITLE__", html.escape(title))
+        .replace("__HEADER__", header)
+        .replace("__INLINE_CSS__", inline_css)
+        .replace("__INLINE_JS__", inline_js)
+    )
+
+
+def _dashboard_script_variables(config) -> dict[str, str]:
+    return {
+        "path": _normalize_dashboard_path(getattr(config, "path", "horizon")),
+        "proxy_path": _normalize_proxy_path(getattr(config, "proxy_path", "")),
+    }
+
+
+def _dashboard_mount_prefix(config) -> str:
+    path = _normalize_dashboard_path(getattr(config, "path", "horizon"))
+    return f"/{path}" if path else ""
+
+
+def _dashboard_assets_prefix(config) -> str:
+    mount_prefix = _dashboard_mount_prefix(config)
+    return f"{mount_prefix}/assets" if mount_prefix else "/assets"
+
+
+def _normalize_dashboard_path(path: str | None) -> str:
+    if path is None:
+        return "horizon"
+    normalized = str(path).strip()
+    if normalized in {"", "/"}:
+        return ""
+    return normalized.strip("/")
+
+
+def _normalize_proxy_path(proxy_path: str | None) -> str:
+    if proxy_path is None:
+        return ""
+    normalized = str(proxy_path).strip().strip("/")
+    return f"/{normalized}" if normalized else ""
 
 
 def commands() -> list:
@@ -280,9 +374,17 @@ class HorizonServiceProvider:
         """Bootstrap Horizon services."""
         pass
 
-    def mount_dashboard(self, fastapi_app, *, broker=None, batch_repo=None):
+    def mount_dashboard(
+        self, fastapi_app, *, broker=None, batch_repo=None, dashboard_dist_dir: str | Path | None = None
+    ):
         """Mount the Horizon API routes + Vue SPA onto a FastAPI application."""
-        mount_dashboard(fastapi_app, self.app, broker=broker, batch_repo=batch_repo)
+        mount_dashboard(
+            fastapi_app,
+            self.app,
+            broker=broker,
+            batch_repo=batch_repo,
+            dashboard_dist_dir=dashboard_dist_dir,
+        )
 
     def commands(self) -> list:
         """Dynamically expose the package console commands."""
