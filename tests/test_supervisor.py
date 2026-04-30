@@ -1,6 +1,6 @@
 """Tests for Supervisor — command processing and state management."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 

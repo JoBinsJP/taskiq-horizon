@@ -1,6 +1,7 @@
 """Tests for RedisCommandQueue — push/pending/flush round-trip."""
 
 import json
+
 import pytest
 
 from taskiq_horizon.repositories.redis_command_queue import RedisCommandQueue

@@ -1,14 +1,13 @@
 """Tests for EventDispatcher — the core pub/sub bus."""
 
 import asyncio
+
 import pytest
 
-from taskiq_horizon.event_dispatcher import EventDispatcher
 from taskiq_horizon.events import (
     JobCompleted,
     JobPushed,
     LongWaitDetected,
-    MasterSupervisorLooped,
     SupervisorLooped,
 )
 

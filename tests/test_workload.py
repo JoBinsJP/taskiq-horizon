@@ -7,7 +7,6 @@ from taskiq_horizon.repositories.redis_master_repository import RedisSupervisorR
 from taskiq_horizon.repositories.redis_workload_repository import RedisWorkloadRepository
 from taskiq_horizon.wait_time import WaitTimeCalculator
 
-
 # ── Fake MetricsRepository ───────────────────────────────────────────────────
 
 
@@ -209,10 +208,20 @@ class TestRedisWorkloadRepository:
         """Process count is aggregated from all supervisors."""
         # Register two supervisors with processes on 'default'
         await supervisor_repo.update_supervisor(
-            "sup-1", "master-1", 100, "running", {"default": 3}, {},
+            "sup-1",
+            "master-1",
+            100,
+            "running",
+            {"default": 3},
+            {},
         )
         await supervisor_repo.update_supervisor(
-            "sup-2", "master-1", 101, "running", {"default": 2}, {},
+            "sup-2",
+            "master-1",
+            101,
+            "running",
+            {"default": 2},
+            {},
         )
 
         metrics = FakeMetrics(queues=["default"], runtimes={"default": 100.0})

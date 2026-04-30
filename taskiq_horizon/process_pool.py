@@ -6,8 +6,8 @@ alive and terminating workers separately to enable graceful
 scale-down without killing active jobs.
 """
 
-import time
 import logging
+import time
 from typing import Optional
 
 from taskiq_horizon.worker_process import WorkerProcess
@@ -26,7 +26,7 @@ class ProcessPool:
     This separation is what enables zero-downtime scaling.
     """
 
-    def __init__(self, broker_path: str, queue: str = "default", worker_args: list[str] = None) -> None:
+    def __init__(self, broker_path: str, queue: str = "default", worker_args: Optional[list[str]] = None) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
@@ -76,8 +76,7 @@ class ProcessPool:
             self.terminating.append((worker, now))
 
         logger.info(
-            f"Pool [{self.queue}] scaled DOWN by {count} → "
-            f"{len(self.workers)} active, {len(self.terminating)} draining"
+            f"Pool [{self.queue}] scaled DOWN by {count} → {len(self.workers)} active, {len(self.terminating)} draining"
         )
 
     def prune_terminating(self, timeout: int = 60) -> None:
@@ -99,8 +98,7 @@ class ProcessPool:
             elapsed = now - terminated_at
             if elapsed > timeout:
                 logger.warning(
-                    f"Worker PID={worker.pid} exceeded drain timeout "
-                    f"({elapsed:.0f}s > {timeout}s). Force killing."
+                    f"Worker PID={worker.pid} exceeded drain timeout ({elapsed:.0f}s > {timeout}s). Force killing."
                 )
                 worker.kill()
                 continue
@@ -129,8 +127,7 @@ class ProcessPool:
             mem = worker.memory_usage_mb()
             if mem > 0 and mem > memory_limit_mb:
                 logger.warning(
-                    f"Worker PID={worker.pid} exceeds memory limit "
-                    f"({mem:.1f}MB > {memory_limit_mb}MB). Terminating..."
+                    f"Worker PID={worker.pid} exceeds memory limit ({mem:.1f}MB > {memory_limit_mb}MB). Terminating..."
                 )
                 worker.terminate()
                 self.terminating.append((worker, time.time()))

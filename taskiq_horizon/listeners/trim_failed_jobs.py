@@ -4,8 +4,8 @@ TrimFailedJobs — mirrors Laravel\Horizon\Listeners\TrimFailedJobs.
 Periodically trims failed job entries from Redis.
 r"""
 
-import time
 import logging
+import time
 from typing import Optional
 
 from taskiq_horizon.contracts.job_repository import JobRepository

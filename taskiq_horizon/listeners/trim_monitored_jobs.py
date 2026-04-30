@@ -4,8 +4,8 @@ TrimMonitoredJobs — mirrors Laravel\Horizon\Listeners\TrimMonitoredJobs.
 Periodically trims monitored (tagged) job entries from Redis.
 r"""
 
-import time
 import logging
+import time
 from typing import Optional
 
 from taskiq_horizon.contracts.job_repository import JobRepository

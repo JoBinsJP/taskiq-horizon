@@ -6,10 +6,9 @@ TaskIQ worker OS process. Separates concern of process management
 from pool management.
 """
 
-import sys
-import signal
 import logging
 import subprocess
+import sys
 from typing import Optional
 
 logger = logging.getLogger("horizon.process")
@@ -25,7 +24,7 @@ class WorkerProcess:
     - Expose the PID for memory inspection.
     """
 
-    def __init__(self, broker_path: str, queue: str = "default", worker_args: list[str] = None) -> None:
+    def __init__(self, broker_path: str, queue: str = "default", worker_args: Optional[list[str]] = None) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
@@ -35,7 +34,10 @@ class WorkerProcess:
     def start(self) -> None:
         """Spawn the worker subprocess."""
         cmd = [
-            sys.executable, "-m", "taskiq", "worker",
+            sys.executable,
+            "-m",
+            "taskiq",
+            "worker",
             self.broker_path,
         ]
         cmd.extend(self.worker_args)
@@ -80,6 +82,7 @@ class WorkerProcess:
             return 0.0
         try:
             import psutil
+
             proc = psutil.Process(self.pid)
             return proc.memory_info().rss / (1024 * 1024)
         except (ImportError, Exception):

@@ -98,4 +98,3 @@ def register_default_listeners(
     )
 
     logger.info("Horizon default event listeners registered.")
-

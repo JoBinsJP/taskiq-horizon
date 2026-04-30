@@ -2,14 +2,12 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
-from taskiq_horizon.commands.pause import PauseCommand
-from taskiq_horizon.commands.continue_working import ContinueWorkingCommand
-from taskiq_horizon.commands.restart import RestartCommand
-from taskiq_horizon.commands.terminate import TerminateCommand
-from taskiq_horizon.commands.scale import ScaleCommand
 from taskiq_horizon.commands import COMMAND_MAP
+from taskiq_horizon.commands.continue_working import ContinueWorkingCommand
+from taskiq_horizon.commands.pause import PauseCommand
+from taskiq_horizon.commands.restart import RestartCommand
+from taskiq_horizon.commands.scale import ScaleCommand
+from taskiq_horizon.commands.terminate import TerminateCommand
 
 
 class TestCommands:
@@ -57,9 +55,7 @@ class TestCommands:
 
     def test_command_map_has_all_commands(self):
         """The command registry contains all expected command names."""
-        assert set(COMMAND_MAP.keys()) == {
-            "pause", "continue", "restart", "terminate", "scale", "balance"
-        }
+        assert set(COMMAND_MAP.keys()) == {"pause", "continue", "restart", "terminate", "scale", "balance"}
 
     def test_command_map_resolves_to_correct_classes(self):
         """Each command name maps to the correct handler class."""

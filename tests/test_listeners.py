@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from taskiq_horizon.events import MasterSupervisorLooped
-from taskiq_horizon.listeners.trim_recent_jobs import TrimRecentJobsListener
 from taskiq_horizon.listeners.trim_failed_jobs import TrimFailedJobsListener
 from taskiq_horizon.listeners.trim_monitored_jobs import TrimMonitoredJobsListener
+from taskiq_horizon.listeners.trim_recent_jobs import TrimRecentJobsListener
 
 
 class TestTrimRecentJobsListener:

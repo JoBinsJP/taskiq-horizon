@@ -10,12 +10,12 @@ class HorizonCommand(Command):
         import asyncio
         import logging
 
+        from app.core.application import boot
+        from app.core.container import container
+        from config.settings import settings
+
         from taskiq_horizon.event_dispatcher import EventDispatcher
         from taskiq_horizon.master_supervisor import MasterSupervisor
-
-        from app.core.container import container
-        from app.core.application import boot
-        from config.settings import settings
 
         self.line("<info>Booting Horizon configuration...</info>")
         logging.basicConfig(level=logging.INFO)

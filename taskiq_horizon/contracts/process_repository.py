@@ -1,13 +1,14 @@
-from typing import List, Dict, Any
 from abc import ABC, abstractmethod
+from typing import Any
+
 
 class ProcessRepository(ABC):
     @abstractmethod
-    async def all(self) -> List[Dict[str, Any]]:
+    async def all(self) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def update(self, pid: int, data: Dict[str, Any]) -> None:
+    async def update(self, pid: int, data: dict[str, Any]) -> None:
         pass
 
     @abstractmethod

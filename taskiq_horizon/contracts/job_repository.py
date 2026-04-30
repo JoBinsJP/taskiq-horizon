@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Dict
+from typing import Any, Optional
+
 from taskiq_horizon.payload import TaskPayload
 
+
 class JobRepository(ABC):
-    
     @abstractmethod
     async def next_job_id(self) -> str:
         pass
@@ -17,23 +18,23 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_recent(self, after_index: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_recent(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_failed(self, after_index: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_failed(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_pending(self, after_index: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_pending(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_completed(self, after_index: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_completed(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_silenced(self, after_index: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_silenced(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -61,7 +62,11 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_jobs(self, ids: List[str], index_from: int = 0) -> List[Dict[str, Any]]:
+    async def get_jobs(self, ids: list[str], index_from: int = 0) -> list[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def get_jobs_by_tag(self, tag: str, after_index: Optional[int] = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -85,7 +90,7 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def delete_monitored(self, ids: List[str]) -> None:
+    async def delete_monitored(self, ids: list[str]) -> None:
         pass
 
     @abstractmethod
@@ -101,7 +106,7 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def find_failed(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def find_failed(self, task_id: str) -> Optional[dict[str, Any]]:
         pass
 
     @abstractmethod

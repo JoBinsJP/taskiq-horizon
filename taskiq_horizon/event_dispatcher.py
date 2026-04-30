@@ -52,10 +52,7 @@ class EventDispatcher:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception:
-                logger.exception(
-                    f"Listener {listener!r} raised an exception "
-                    f"while handling {event_type.__name__}"
-                )
+                logger.exception(f"Listener {listener!r} raised an exception while handling {event_type.__name__}")
 
     def has_listeners(self, event_type: type) -> bool:
         """Check if any listeners are registered for the given event type."""

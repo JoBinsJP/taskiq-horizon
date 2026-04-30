@@ -28,8 +28,7 @@ class MonitorMasterSupervisorMemoryListener:
 
         if memory_mb > self.memory_limit_mb:
             logger.warning(
-                f"Master supervisor using {memory_mb:.1f}MB "
-                f"(limit: {self.memory_limit_mb}MB) — triggering shutdown"
+                f"Master supervisor using {memory_mb:.1f}MB (limit: {self.memory_limit_mb}MB) — triggering shutdown"
             )
             await self.dispatcher.fire(
                 MasterSupervisorOutOfMemory(

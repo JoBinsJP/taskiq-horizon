@@ -9,7 +9,6 @@ from typing import Any
 
 
 class WorkloadRepository(ABC):
-
     @abstractmethod
     async def get(self) -> list[dict[str, Any]]:
         """

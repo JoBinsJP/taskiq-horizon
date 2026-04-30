@@ -18,11 +18,9 @@ import logging
 import os
 import signal
 import socket
-import time
-from typing import Optional
 
+from taskiq_horizon.autoscaler import AutoScaler
 from taskiq_horizon.config import HorizonConfig
-from taskiq_horizon.contracts.command_queue import CommandQueue
 from taskiq_horizon.event_dispatcher import EventDispatcher
 from taskiq_horizon.event_map import register_default_listeners
 from taskiq_horizon.events import MasterSupervisorLooped
@@ -76,7 +74,7 @@ class MasterSupervisor:
 
         # Build supervisors from options or environments config
         self.supervisors: list[Supervisor] = []
-        
+
         opts_to_use = supervisor_options
         if opts_to_use is None:
             # Fallback to environments dictionary if provided
@@ -90,10 +88,15 @@ class MasterSupervisor:
 
         for opts in opts_to_use:
             opts.broker_path = opts.broker_path or ""
+            autoscaler = None
+            autoscaler_metrics = metrics_repo or getattr(wait_time_calculator, "metrics_repo", None)
+            if autoscaler_metrics and wait_time_calculator:
+                autoscaler = AutoScaler(autoscaler_metrics, wait_time_calculator)
             sup = Supervisor(
                 options=opts,
                 command_queue=self.command_queue,
                 dispatcher=dispatcher,
+                autoscaler=autoscaler,
             )
             self.supervisors.append(sup)
 

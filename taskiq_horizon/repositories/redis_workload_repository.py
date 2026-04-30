@@ -73,24 +73,28 @@ class RedisWorkloadRepository(WorkloadRepository):
                 cumulative_wait = 0.0
                 for sq in sub_queues:
                     cumulative_wait += await self.wait_time.calculate_for(sq)
-                    split_queues.append({
-                        "name": sq,
-                        "length": sub_lengths[sq],
-                        "wait": cumulative_wait,
-                    })
+                    split_queues.append(
+                        {
+                            "name": sq,
+                            "length": sub_lengths[sq],
+                            "wait": cumulative_wait,
+                        }
+                    )
 
                 total_length = sum(sub_lengths.values())
             else:
                 total_length = await self._queue_length(queue)
                 split_queues = None
 
-            results.append({
-                "name": queue,
-                "length": total_length,
-                "wait": wait_sec,
-                "processes": total_processes,
-                "split_queues": split_queues,
-            })
+            results.append(
+                {
+                    "name": queue,
+                    "length": total_length,
+                    "wait": wait_sec,
+                    "processes": total_processes,
+                    "split_queues": split_queues,
+                }
+            )
 
         return results
 

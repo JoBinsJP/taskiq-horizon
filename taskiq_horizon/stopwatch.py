@@ -1,9 +1,11 @@
 import time
 
+
 class Stopwatch:
     """
     Port of Laravel Horizon's Stopwatch for managing graceful zero-downtime timeouts.
     """
+
     def __init__(self):
         self.starts = {}
 

@@ -10,8 +10,8 @@ class HorizonSnapshotCommand(Command):
     def handle(self):
         import asyncio
 
-        from app.core.container import container
         from app.core.application import boot
+        from app.core.container import container
 
         self.line("<info>Taking Horizon metrics snapshot...</info>")
         boot()

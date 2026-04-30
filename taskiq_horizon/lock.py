@@ -1,10 +1,13 @@
+from typing import Any, Callable
+
 from redis.asyncio import Redis
-from typing import Callable, Any
+
 
 class Lock:
     """
     Port of Laravel Horizon's Lock.php for distributed locking via setnx/expire.
     """
+
     def __init__(self, redis: Redis):
         self.redis = redis
 
@@ -20,9 +23,7 @@ class Lock:
         return await self.redis.exists(key) == 1
 
     async def get(self, key: str, seconds: int = 60) -> bool:
-        result = await self.redis.setnx(key, 1)
-        if result:
-            await self.redis.expire(key, seconds)
+        result = await self.redis.set(key, 1, ex=seconds, nx=True)
         return bool(result)
 
     async def release(self, key: str) -> None:

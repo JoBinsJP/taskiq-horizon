@@ -29,10 +29,12 @@ class RedisCommandQueue(CommandQueue):
 
     async def push(self, name: str, command: str, options: dict[str, Any] | None = None) -> None:
         """Push a command onto the queue for the named supervisor."""
-        payload = json.dumps({
-            "command": command,
-            "options": options or {},
-        })
+        payload = json.dumps(
+            {
+                "command": command,
+                "options": options or {},
+            }
+        )
         await self.redis.rpush(self._key(name), payload)
         logger.info(f"Pushed command '{command}' to supervisor '{name}'")
 

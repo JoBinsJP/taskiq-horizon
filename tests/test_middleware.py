@@ -8,17 +8,15 @@ Covers:
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
 from taskiq.message import TaskiqMessage
 
-from taskiq_horizon.config import HorizonConfig, TrimSettings
 from taskiq_horizon.middleware import HorizonMiddleware
 from taskiq_horizon.payload import TaskPayload
 from taskiq_horizon.repositories.redis_job_repository import RedisJobRepository
-
+from taskiq_horizon.repositories.redis_tag_repository import RedisTagRepository
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,15 +43,17 @@ def job_repo(redis, config):
 
 
 @pytest.fixture
-def middleware(config, job_repo):
+def tag_repo(redis, config):
+    return RedisTagRepository(redis, config)
+
+
+@pytest.fixture
+def middleware(config, job_repo, tag_repo):
     metrics = MagicMock()
-    metrics.increment_job = MagicMock(return_value=None)
-    metrics.increment_queue = MagicMock(return_value=None)
+    metrics.increment_job = AsyncMock(return_value=None)
+    metrics.increment_queue = AsyncMock(return_value=None)
 
-    tags = MagicMock()
-    tags.monitored = MagicMock(return_value=None)
-
-    return HorizonMiddleware(config=config, jobs=job_repo, metrics=metrics, tags=tags)
+    return HorizonMiddleware(config=config, jobs=job_repo, metrics=metrics, tags=tag_repo)
 
 
 # ── TaskPayload unit tests ────────────────────────────────────────────────────
@@ -103,11 +103,25 @@ class TestTaskPayload:
 
         assert payload.is_silenced() is True
 
+    def test_retry_state_is_embedded_for_retries(self, config):
+        msg = make_message(labels={"queue_name": "default"}, kwargs={"customer_id": 42})
+        payload = TaskPayload(msg).prepare(config)
+
+        parsed = json.loads(payload.value)
+        assert parsed["taskiq"]["state"]
+
     def test_is_retry_false_by_default(self, config):
         msg = make_message()
         payload = TaskPayload(msg).prepare(config)
 
         assert payload.is_retry() is False
+
+    def test_retry_of_is_read_from_labels(self, config):
+        msg = make_message(labels={"retry_of": "parent-job-id"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.is_retry() is True
+        assert payload.retry_of() == "parent-job-id"
 
 
 # ── HorizonMiddleware queue_name label tests ──────────────────────────────────
@@ -245,3 +259,36 @@ class TestMiddlewareLifecycle:
         payload = jobs[0]["payload"]
         assert payload["task_name"] == "memory:cognee_write"
 
+    @pytest.mark.asyncio
+    async def test_failed_monitored_tags_are_recorded(self, middleware, job_repo, tag_repo):
+        await tag_repo.monitor("tenant:42")
+        msg = make_message(
+            task_id="tagged-failure-001",
+            labels={"queue_name": "default", "tags": ["tenant:42"]},
+        )
+
+        await middleware.pre_send(msg)
+        await middleware.pre_execute(msg)
+
+        result = MagicMock()
+        result.is_err = True
+        await middleware.on_error(msg, result, RuntimeError("boom"))
+
+        assert await tag_repo.count("tenant:42") == 1
+        assert await tag_repo.count("failed:tenant:42") == 1
+
+    @pytest.mark.asyncio
+    async def test_pushed_timestamp_survives_failure_transition(self, middleware, job_repo):
+        msg = make_message(task_id="timestamp-failure-001", labels={"queue_name": "default"})
+
+        await middleware.pre_send(msg)
+        pending_job = (await job_repo.get_pending())[0]
+        pushed_at = pending_job["payload"]["pushedAt"]
+
+        await middleware.pre_execute(msg)
+        result = MagicMock()
+        result.is_err = True
+        await middleware.on_error(msg, result, RuntimeError("boom"))
+
+        failed_job = await job_repo.find_failed("timestamp-failure-001")
+        assert failed_job["payload"]["pushedAt"] == pushed_at

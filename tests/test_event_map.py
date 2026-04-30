@@ -4,8 +4,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from taskiq_horizon.config import HorizonConfig
-from taskiq_horizon.event_dispatcher import EventDispatcher
 from taskiq_horizon.event_map import register_default_listeners
 from taskiq_horizon.events import (
     LongWaitDetected,
@@ -69,7 +67,7 @@ class TestEventMap:
         # Memory listeners always get registered
         assert dispatcher.has_listeners(MasterSupervisorLooped)
         assert len(dispatcher._listeners[MasterSupervisorLooped]) == 1
-        
+
         assert dispatcher.has_listeners(SupervisorLooped)
         assert len(dispatcher._listeners[SupervisorLooped]) == 1
 

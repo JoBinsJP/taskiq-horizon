@@ -1,9 +1,7 @@
 """Tests for ProcessPool — scaling, monitoring, and draining."""
 
 import time
-from unittest.mock import MagicMock, patch, PropertyMock
-
-import pytest
+from unittest.mock import patch
 
 from taskiq_horizon.process_pool import ProcessPool
 from taskiq_horizon.worker_process import WorkerProcess

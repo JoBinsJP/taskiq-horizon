@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import List
+
 
 class TagRepository(ABC):
-
     @abstractmethod
-    async def monitored(self, tags: List[str]) -> List[str]:
+    async def monitored(self, tags: list[str]) -> list[str]:
         pass
 
     @abstractmethod
@@ -16,11 +15,11 @@ class TagRepository(ABC):
         pass
 
     @abstractmethod
-    async def monitors(self) -> List[str]:
+    async def monitors(self) -> list[str]:
         pass
 
     @abstractmethod
-    async def add(self, task_id: str, tags: List[str]) -> None:
+    async def add(self, task_id: str, tags: list[str]) -> None:
         pass
 
     @abstractmethod

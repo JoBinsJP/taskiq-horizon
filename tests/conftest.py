@@ -1,8 +1,8 @@
 """Shared test fixtures for taskiq-horizon test suite."""
 
+import fakeredis.aioredis
 import pytest
 import pytest_asyncio
-import fakeredis.aioredis
 
 from taskiq_horizon.config import HorizonConfig, TrimSettings
 from taskiq_horizon.event_dispatcher import EventDispatcher

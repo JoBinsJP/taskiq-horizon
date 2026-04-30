@@ -57,7 +57,7 @@ def register_services(container: Container) -> None:
 # ── Dashboard Mounting ───────────────────────────────────────────────────────
 
 
-def mount_dashboard(app, container: Container) -> None:
+def mount_dashboard(app, container: Container, *, broker=None, batch_repo=None) -> None:
     """
     Mount the Horizon API routes + Vue SPA onto a FastAPI application.
 
@@ -74,6 +74,7 @@ def mount_dashboard(app, container: Container) -> None:
     from taskiq_horizon.api.routes import router as horizon_router
 
     # Inject repos into app.state (Horizon routes read from here)
+    app.state.horizon_config = container.make("horizon.config")
     app.state.horizon_job_repo = container.make("horizon.jobs")
     app.state.horizon_metrics_repo = container.make("horizon.metrics")
     app.state.horizon_tag_repo = container.make("horizon.tags")
@@ -82,6 +83,10 @@ def mount_dashboard(app, container: Container) -> None:
     app.state.horizon_master_repo = container.make("horizon.masters")
     app.state.horizon_super_repo = container.make("horizon.supervisors")
     app.state.horizon_command_queue = container.make("horizon.command_queue")
+    if broker is not None:
+        app.state.broker = broker
+    if batch_repo is not None:
+        app.state.horizon_batch_repo = batch_repo
 
     # Mount API under /horizon — routes.py has prefix="/api", so final
     # paths are /horizon/api/stats, /horizon/api/masters, etc.
@@ -127,23 +132,18 @@ def _make_workload_repo(container: Container):
     )
 
 
-
 def _make_master_repo(container: Container):
     from taskiq_horizon.repositories.redis_master_repository import RedisMasterSupervisorRepository
 
     return RedisMasterSupervisorRepository(
-        container.make("horizon.redis"),
-        prefix=container.make("horizon.config").prefix
+        container.make("horizon.redis"), prefix=container.make("horizon.config").prefix
     )
 
 
 def _make_supervisor_repo(container: Container):
     from taskiq_horizon.repositories.redis_master_repository import RedisSupervisorRepository
 
-    return RedisSupervisorRepository(
-        container.make("horizon.redis"),
-        prefix=container.make("horizon.config").prefix
-    )
+    return RedisSupervisorRepository(container.make("horizon.redis"), prefix=container.make("horizon.config").prefix)
 
 
 def _make_wait_time(container: Container):
@@ -159,12 +159,14 @@ def _make_wait_time(container: Container):
     async def supervisor_fetcher():
         return await supervisor_repo.all_supervisors()
 
-    return WaitTimeCalculator(
+    calculator = WaitTimeCalculator(
         metrics,
         queue_length_fetcher=queue_len,
         supervisor_fetcher=supervisor_fetcher,
     )
-
+    if hasattr(metrics, "set_wait_time_calculator"):
+        metrics.set_wait_time_calculator(calculator)
+    return calculator
 
 
 def _make_command_queue(container: Container):
@@ -278,9 +280,9 @@ class HorizonServiceProvider:
         """Bootstrap Horizon services."""
         pass
 
-    def mount_dashboard(self, fastapi_app):
+    def mount_dashboard(self, fastapi_app, *, broker=None, batch_repo=None):
         """Mount the Horizon API routes + Vue SPA onto a FastAPI application."""
-        mount_dashboard(fastapi_app, self.app)
+        mount_dashboard(fastapi_app, self.app, broker=broker, batch_repo=batch_repo)
 
     def commands(self) -> list:
         """Dynamically expose the package console commands."""

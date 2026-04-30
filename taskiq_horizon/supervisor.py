@@ -15,10 +15,8 @@ Lifecycle:
 import asyncio
 import logging
 import os
-import signal
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
 from taskiq_horizon.commands import COMMAND_MAP
 from taskiq_horizon.contracts.command_queue import CommandQueue
@@ -37,6 +35,7 @@ class SupervisorOptions:
     Each supervisor manages one queue (or comma-separated set of queues)
     with its own scaling and resource limits.
     """
+
     name: str = ""
     connection: str = "redis"
     queue: str = "default"
@@ -141,7 +140,7 @@ class Supervisor:
         while self.pool.total_process_count > 0:
             self.pool.prune_terminating(timeout=self.options.timeout)
             if time.time() > deadline:
-                logger.warning(f"Drain timeout exceeded. Force killing remaining workers.")
+                logger.warning("Drain timeout exceeded. Force killing remaining workers.")
                 self.pool.kill_all()
                 break
             await asyncio.sleep(0.5)

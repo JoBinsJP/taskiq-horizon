@@ -1,13 +1,18 @@
 """Tests for Redis repository flush_expired methods."""
 
 import time
+from types import SimpleNamespace
 
 import pytest
+from taskiq.message import TaskiqMessage
 
+from taskiq_horizon.payload import TaskPayload
+from taskiq_horizon.repositories.redis_job_repository import RedisJobRepository
 from taskiq_horizon.repositories.redis_master_repository import (
     RedisMasterSupervisorRepository,
     RedisSupervisorRepository,
 )
+from taskiq_horizon.repositories.redis_metrics_repository import RedisMetricsRepository
 
 
 class TestRedisMasterSupervisorRepository:
@@ -99,3 +104,100 @@ class TestRedisSupervisorRepository:
         names = await repo.get_supervisor_names()
         assert "fresh-sup" in names
         assert "stale-sup" not in names
+
+
+class TestRedisMetricsRepository:
+    @pytest.fixture
+    def repo(self, redis, config):
+        return RedisMetricsRepository(redis, config)
+
+    @pytest.fixture
+    def wait_time_calculator(self):
+        class StubWaitTime:
+            async def calculate_for(self, queue: str) -> float:
+                return 12.5 if queue == "default" else 0.0
+
+        return StubWaitTime()
+
+    @pytest.mark.asyncio
+    async def test_increment_and_read_metrics(self, repo):
+        await repo.increment_job("memory:write", 50.0)
+        await repo.increment_job("memory:write", 150.0)
+        await repo.increment_queue("default", 100.0)
+
+        assert await repo.measured_jobs() == ["memory:write"]
+        assert await repo.measured_queues() == ["default"]
+        assert await repo.throughput_for_job("memory:write") == 2
+        assert await repo.runtime_for_job("memory:write") == 100.0
+        assert await repo.throughput_for_queue("default") == 1
+        assert await repo.runtime_for_queue("default") == 100.0
+
+    @pytest.mark.asyncio
+    async def test_snapshot_uses_sorted_sets_and_wait_times(self, repo, wait_time_calculator):
+        repo.set_wait_time_calculator(wait_time_calculator)
+        await repo.increment_job("memory:write", 50.0)
+        await repo.increment_queue("default", 100.0)
+
+        await repo.snapshot()
+
+        job_snapshots = await repo.snapshots_for_job("memory:write")
+        queue_snapshots = await repo.snapshots_for_queue("default")
+
+        assert len(job_snapshots) == 1
+        assert job_snapshots[0]["throughput"] == 1
+        assert queue_snapshots[0]["wait"] == 12.5
+        assert queue_snapshots[0]["runtime"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_jobs_processed_per_minute_uses_snapshot_timestamp(self, repo, redis):
+        await repo.increment_queue("default", 100.0)
+        await redis.set("test-horizon:metrics:last_snapshot_at", int(time.time()) - 120)
+
+        assert await repo.jobs_processed_per_minute() == 1
+
+    @pytest.mark.asyncio
+    async def test_clear_removes_metric_keys(self, repo):
+        await repo.increment_job("memory:write", 50.0)
+        await repo.increment_queue("default", 100.0)
+        await repo.snapshot()
+
+        await repo.clear()
+
+        assert await repo.measured_jobs() == []
+        assert await repo.measured_queues() == []
+        assert await repo.snapshots_for_job("memory:write") == []
+
+
+class TestRedisJobRepository:
+    @pytest.fixture
+    def repo(self, redis, config):
+        return RedisJobRepository(redis, config)
+
+    def _payload(self, task_id: str, queue_name: str = "default") -> TaskPayload:
+        message = TaskiqMessage(
+            task_id=task_id,
+            task_name="memory:write",
+            labels={"queue_name": queue_name},
+            args=[],
+            kwargs={},
+        )
+        return TaskPayload(message).prepare(SimpleNamespace(silenced=[], silenced_tags=[]))
+
+    @pytest.mark.asyncio
+    async def test_purge_removes_pending_and_reserved_jobs_for_queue(self, repo):
+        pending_default = self._payload("pending-default", "default")
+        reserved_default = self._payload("reserved-default", "default")
+        pending_high = self._payload("pending-high", "high")
+
+        await repo.pushed("redis", "default", pending_default)
+        await repo.pushed("redis", "default", reserved_default)
+        await repo.pushed("redis", "high", pending_high)
+        await repo.reserved("redis", "default", reserved_default)
+
+        removed = await repo.purge("default")
+
+        assert removed == 2
+        pending = await repo.get_pending()
+        assert len(pending) == 1
+        assert pending[0]["id"] == "pending-high"
+        assert pending[0]["queue"] == "high"

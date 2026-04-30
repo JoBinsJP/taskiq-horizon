@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
+
 
 class MetricsRepository(ABC):
-
     @abstractmethod
-    async def measured_jobs(self) -> List[str]:
+    async def measured_jobs(self) -> list[str]:
         pass
 
     @abstractmethod
-    async def measured_queues(self) -> List[str]:
+    async def measured_queues(self) -> list[str]:
         pass
 
     @abstractmethod
@@ -52,11 +52,11 @@ class MetricsRepository(ABC):
         pass
 
     @abstractmethod
-    async def snapshots_for_job(self, job: str) -> List[Any]:
+    async def snapshots_for_job(self, job: str) -> list[Any]:
         pass
 
     @abstractmethod
-    async def snapshots_for_queue(self, queue: str) -> List[Any]:
+    async def snapshots_for_queue(self, queue: str) -> list[Any]:
         pass
 
     @abstractmethod

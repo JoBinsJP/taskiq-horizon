@@ -12,9 +12,9 @@ class LuaScripts:
         """
         return """
             redis.call('hsetnx', KEYS[1], 'throughput', 0)
-            
+
             redis.call('sadd', KEYS[2], KEYS[1])
-            
+
             local hash = redis.call('hmget', KEYS[1], 'throughput', 'runtime')
 
             local throughput = hash[1] + 1
@@ -72,14 +72,14 @@ class LuaScripts:
         return """
             -- 1. Gather the payload IDs that are being trimmed out.
             local ids = redis.call('zrangebyscore', KEYS[1], '-inf', '(-' .. ARGV[1])
-            
+
             -- 2. Physically discard the backing Hashes so Redis Memory doesn't bloat.
             for i = 1, #ids do
                 redis.call('del', ids[i])
             end
-            
+
             -- 3. Slice the indices from the Sorted Set itself.
             redis.call('zremrangebyscore', KEYS[1], '-inf', '(-' .. ARGV[1])
-            
+
             return #ids
         """

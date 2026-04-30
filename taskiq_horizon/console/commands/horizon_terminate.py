@@ -10,8 +10,8 @@ class HorizonTerminateCommand(Command):
         import asyncio
         import logging
 
-        from app.core.container import container
         from app.core.application import boot
+        from app.core.container import container
 
         logging.basicConfig(level=logging.ERROR)
         boot()

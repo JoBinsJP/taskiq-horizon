@@ -6,8 +6,8 @@ no more than once per `frequency` seconds, even though the event fires
 on every master supervisor loop (~1-3s).
 r"""
 
-import time
 import logging
+import time
 from typing import Optional
 
 from taskiq_horizon.contracts.job_repository import JobRepository

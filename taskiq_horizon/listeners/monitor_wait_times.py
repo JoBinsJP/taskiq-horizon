@@ -5,8 +5,8 @@ Periodically calculates queue wait times and fires LongWaitDetected
 events when thresholds are exceeded. Self-throttled to ~1 minute.
 r"""
 
-import time
 import logging
+import time
 from typing import Optional
 
 from taskiq_horizon.config import HorizonConfig
@@ -33,6 +33,10 @@ class MonitorWaitTimesListener:
 
     async def handle(self, event: SupervisorLooped) -> None:
         if not self._due_to_monitor():
+            return
+
+        metrics_repo = getattr(self.wait_time, "metrics_repo", None)
+        if metrics_repo and not await metrics_repo.acquire_wait_time_monitor_lock():
             return
 
         wait_times = await self.wait_time.calculate()
