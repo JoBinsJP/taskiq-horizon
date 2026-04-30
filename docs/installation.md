@@ -92,3 +92,21 @@ if __name__ == "__main__":
 ```
 
 Run this script to start processing jobs and watch them appear in the dashboard!
+
+## Quick UI Smoke Test
+
+If you only want to verify that the packaged dashboard boots correctly from this repository checkout, you can use the included smoke app:
+
+```bash
+cd taskiq-horizon
+./.venv/bin/python smoke_dashboard.py
+```
+
+Then open `http://127.0.0.1:8000/horizon`.
+
+Environment variables you can override:
+
+- `HORIZON_REDIS_URL` defaults to `redis://127.0.0.1:6379/0`
+- `HORIZON_PATH` defaults to `horizon`
+- `HORIZON_PROXY_PATH` defaults to an empty string
+- `HORIZON_PREFIX` defaults to `horizon:`

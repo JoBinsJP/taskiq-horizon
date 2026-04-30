@@ -1,0 +1,26 @@
+{
+  "name": "taskiq-horizon-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run clean && npm run build:app && npm run build:themes",
+    "build:app": "vite build",
+    "build:themes": "sass --load-path=node_modules --load-path=node_modules/bootstrap/scss --no-source-map src/sass/styles.scss ../taskiq_horizon/dashboard/dist/styles.css && sass --load-path=node_modules --load-path=node_modules/bootstrap/scss --no-source-map src/sass/styles-dark.scss ../taskiq_horizon/dashboard/dist/styles-dark.css",
+    "clean": "rm -rf ../taskiq_horizon/dashboard/dist",
+    "sync:upstream": "node ./scripts/sync-upstream.mjs"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "bootstrap": "^5.3.8",
+    "chart.js": "^4.5.1",
+    "moment-timezone": "^0.6.0",
+    "vue": "^3.5.22",
+    "vue-json-pretty": "^2.5.0",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "sass": "^1.93.2",
+    "vite": "5.4.21"
+  }
+}

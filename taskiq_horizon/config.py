@@ -29,6 +29,17 @@ class HorizonConfig:
     # Prefix for all Redis keys
     prefix: str = "taskiq-horizon:"
 
+    # Dashboard display name suffix (shown in title/header).
+    name: str = ""
+
+    # Dashboard route path, equivalent to Laravel Horizon's "path" config.
+    # Examples: "horizon", "ops/horizon"
+    path: str = "horizon"
+
+    # Optional external proxy path prefix used by the Vue router.
+    # Example: "/admin"
+    proxy_path: str = ""
+
     # URL to the Redis connection used by Horizon
     redis_url: str = "redis://localhost:6379/0"
 

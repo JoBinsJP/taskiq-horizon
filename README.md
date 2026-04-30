@@ -33,3 +33,14 @@ uv pip install -e path/to/taskiq-horizon
 *(Standard `pip install taskiq-horizon` works as well)*
 
 To run the Vue SPA dashboard and APIs, mount the dashboard routes using the dedicated Service Provider on your ASGI application. Detailed instructions are available in the MkDocs `docs/installation.md` file.
+
+## Local UI Smoke Test
+
+If you want to verify the dashboard UI from this repository checkout without rebuilding the frontend, use the included smoke app:
+
+```bash
+cd taskiq-horizon
+./.venv/bin/python smoke_dashboard.py
+```
+
+Then open [http://127.0.0.1:8000/horizon](http://127.0.0.1:8000/horizon).
