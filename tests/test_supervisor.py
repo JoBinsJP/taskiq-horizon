@@ -1,11 +1,60 @@
 """Tests for Supervisor — command processing and state management."""
 
+import time
 from unittest.mock import AsyncMock
 
 import pytest
 
+import taskiq_horizon.supervisor as supervisor_module
 from taskiq_horizon.event_dispatcher import EventDispatcher
 from taskiq_horizon.supervisor import Supervisor, SupervisorOptions
+
+
+class FakeProcessPool:
+    def __init__(self, broker_path: str, queue: str = "default", worker_args=None, queue_env_var: str = "QUEUE_NAME"):
+        self.broker_path = broker_path
+        self.queue = queue
+        self.worker_args = worker_args or []
+        self.queue_env_var = queue_env_var
+        self.workers = 0
+        self.terminating = 0
+        self.monitor_calls = 0
+        self.restart_calls = 0
+        self.kill_all_calls = 0
+
+    @property
+    def active_process_count(self) -> int:
+        return self.workers
+
+    @property
+    def total_process_count(self) -> int:
+        return self.workers + self.terminating
+
+    def scale(self, target: int) -> None:
+        self.workers = max(0, int(target))
+
+    def monitor(self, memory_limit_mb: int = 128) -> None:
+        self.monitor_calls += 1
+
+    def prune_terminating(self, timeout: int = 60) -> None:
+        self.terminating = 0
+
+    def terminate_all(self) -> None:
+        self.terminating += self.workers
+        self.workers = 0
+
+    def restart(self) -> None:
+        self.restart_calls += 1
+
+    def kill_all(self) -> None:
+        self.kill_all_calls += 1
+        self.workers = 0
+        self.terminating = 0
+
+
+@pytest.fixture(autouse=True)
+def patch_process_pool(monkeypatch):
+    monkeypatch.setattr(supervisor_module, "ProcessPool", FakeProcessPool)
 
 
 class TestSupervisorOptions:
@@ -34,14 +83,27 @@ class TestSupervisorOptions:
         opts = SupervisorOptions(name="test", balance="false")
         assert opts.balancing is False
 
+    def test_queue_names_are_split_and_trimmed(self):
+        opts = SupervisorOptions(name="test", queue=" default, high ,low ")
+        assert opts.queue_names == ["default", "high", "low"]
+
 
 class TestSupervisor:
     """Tests for Supervisor state management and commands."""
 
-    def _make_supervisor(self, name="test-supervisor", min_processes=1, max_processes=10, balance="auto"):
+    def _make_supervisor(
+        self,
+        name="test-supervisor",
+        queue="default",
+        min_processes=1,
+        max_processes=10,
+        balance="auto",
+        autoscaler=None,
+    ):
         opts = SupervisorOptions(
             name=name,
             broker_path="test:broker",
+            queue=queue,
             min_processes=min_processes,
             max_processes=max_processes,
             balance=balance,
@@ -51,7 +113,7 @@ class TestSupervisor:
         command_queue.flush.return_value = None
 
         dispatcher = EventDispatcher()
-        sup = Supervisor(opts, command_queue, dispatcher)
+        sup = Supervisor(opts, command_queue, dispatcher, autoscaler=autoscaler)
         return sup
 
     def test_initial_state(self):
@@ -86,33 +148,45 @@ class TestSupervisor:
         assert sup.working is False
         assert sup.status == "stopped"
 
-    def test_scale_respects_min_max(self):
-        """scale() clamps to min_processes and max_processes."""
-        sup = self._make_supervisor(min_processes=2, max_processes=5)
+    def test_scale_distributes_workers_across_balanced_queues(self):
+        """scale() spreads manual worker targets across per-queue pools."""
+        sup = self._make_supervisor(queue="default,high,low", balance="auto")
 
-        sup.scale(1)  # below min
-        assert sup.pool.active_process_count == 2
+        sup.scale(5)
 
-    def test_restart_terminates_and_respawns(self):
-        """restart() kills all workers and re-scales to min."""
-        sup = self._make_supervisor(min_processes=2)
-        sup.pool.scale(4)  # start with 4
+        assert sup.process_pools["default"].active_process_count == 2
+        assert sup.process_pools["high"].active_process_count == 2
+        assert sup.process_pools["low"].active_process_count == 1
+
+    def test_scale_single_pool_uses_exact_target(self):
+        """Manual scale() applies the requested target on non-balancing supervisors."""
+        sup = self._make_supervisor(queue="default", balance="false", min_processes=2, max_processes=5)
+
+        sup.scale(1)
+
+        assert sup.pool.active_process_count == 1
+
+    def test_restart_restarts_all_pools(self):
+        """restart() delegates to each queue-specific pool."""
+        sup = self._make_supervisor(queue="default,high", balance="auto")
 
         sup.restart()
 
-        # Workers moved to terminating, then re-scaled to min
-        assert sup.pool.active_process_count == 2
+        assert sup.process_pools["default"].restart_calls == 1
+        assert sup.process_pools["high"].restart_calls == 1
 
-    def test_to_dict_serialization(self):
+    def test_to_dict_serialization_uses_per_queue_process_counts(self):
         """to_dict() produces correct JSON-serializable output."""
-        sup = self._make_supervisor()
+        sup = self._make_supervisor(queue="default,high", balance="auto")
+        sup.process_pools["default"].scale(2)
+        sup.process_pools["high"].scale(1)
         d = sup.to_dict()
 
         assert d["name"] == "test-supervisor"
         assert d["status"] == "running"
         assert "pid" in d
-        assert "default" in d["processes"]
-        assert d["options"]["queue"] == "default"
+        assert d["processes"] == {"default": 2, "high": 1}
+        assert d["options"]["queue"] == "default,high"
         assert d["options"]["maxProcesses"] == 10
 
     @pytest.mark.asyncio
@@ -126,3 +200,16 @@ class TestSupervisor:
         await sup._process_commands()
 
         assert sup.working is False  # pause was executed
+
+    @pytest.mark.asyncio
+    async def test_autoscale_honors_immediate_balance_requests(self):
+        """Balance commands bypass the cooldown window on the next loop."""
+        autoscaler = AsyncMock()
+        sup = self._make_supervisor(queue="default,high", balance="auto", autoscaler=autoscaler)
+        sup._last_autoscale = time.time()
+        sup._needs_balance = True
+
+        await sup._autoscale()
+
+        autoscaler.scale.assert_awaited_once_with(sup)
+        assert sup._needs_balance is False

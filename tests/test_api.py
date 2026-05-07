@@ -39,6 +39,22 @@ class DummyWorkload:
         return {}
 
 
+class DummyBatchRepo:
+    def __init__(self):
+        self.last_broker = None
+
+    async def get_batches(self, limit=50, before_id=None, search_query=None):
+        if before_id == "b-2":
+            return {"batches": [{"id": "b-1"}], "total": 1}
+        return {"batches": [{"id": "b-2"}, {"id": "b-1"}], "total": 2}
+
+    async def find_batch(self, batch_id, broker=None):
+        self.last_broker = broker
+        if batch_id == "missing":
+            return None
+        return {"id": batch_id, "batch": {"failedJobIds": ["f-1"]}}
+
+
 def make_app(redis, config):
     app = FastAPI()
     app.state.horizon_config = config
@@ -208,3 +224,84 @@ async def test_purge_queue_route_removes_pending_jobs(redis, config):
 
     pending = await app.state.horizon_job_repo.get_pending()
     assert [job["id"] for job in pending] == ["purge-high-001"]
+
+
+@pytest.mark.asyncio
+async def test_get_batches_pagination_with_before_id(redis, config):
+    app = make_app(redis, config)
+    app.state.horizon_batch_repo = DummyBatchRepo()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/batches?before_id=b-2")
+
+    assert response.status_code == 200
+    assert response.json()["batches"][0]["id"] == "b-1"
+    assert response.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_batch_detail_returns_404_when_missing(redis, config):
+    app = make_app(redis, config)
+    app.state.horizon_batch_repo = DummyBatchRepo()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/batches/missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Not Found"
+
+
+@pytest.mark.asyncio
+async def test_get_batch_detail_returns_501_when_not_configured(redis, config):
+    app = make_app(redis, config)
+    # Don't set horizon_batch_repo to simulate missing config
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/batches/some-batch")
+
+    assert response.status_code == 501
+    assert response.json()["detail"] == "Not Configured"
+
+
+@pytest.mark.asyncio
+async def test_retry_batch_forwards_broker_and_retries_jobs(redis, config):
+    app = make_app(redis, config)
+    batch_repo = DummyBatchRepo()
+    app.state.horizon_batch_repo = batch_repo
+    await seed_failed_job(app, "f-1")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post("/api/batches/retry/b-1")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "retry_dispatched"
+    assert body["retried"] == 1
+    assert batch_repo.last_broker is app.state.broker
+    assert len(app.state.broker.kicked) == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_batch_returns_404_when_all_failed_jobs_are_missing(redis, config):
+    app = make_app(redis, config)
+    app.state.horizon_batch_repo = DummyBatchRepo()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post("/api/batches/retry/b-1")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "1 failed job could not be found"
+
+
+@pytest.mark.asyncio
+async def test_retry_batch_returns_422_when_retries_cannot_run(redis, config):
+    app = make_app(redis, config)
+    app.state.horizon_batch_repo = DummyBatchRepo()
+    app.state.broker = None
+    await seed_failed_job(app, "f-1")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post("/api/batches/retry/b-1")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["message"] == "1 failed job could not be retried"

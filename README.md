@@ -6,8 +6,9 @@ A Python port of Laravel Horizon's monitoring dashboard and process management f
 
 - **Real-Time Dashboard**: See pending, completed, silenced, and failed jobs as they happen.
 - **Metrics**: Track throughput and runtime metrics for specific queues and jobs over time.
-- **Process Management**: Optional supervisor allows you to scale and manage `taskiq worker` processes per queue.
-- **Broker Agnostic Middleware**: Track metrics into Redis regardless of which broker TaskIQ is using to transport tasks.
+- **Laravel-Style Process Management**: The supervisor supports `auto`, `simple`, and `false` balancing modes, including per-queue autoscaling for Redis deployments.
+- **Redis-First Runtime**: The dashboard, metrics, workload calculation, and supervisor control plane are production-ready on Redis today.
+- **Broker Agnostic Middleware**: Metrics/job lifecycle tracking can still be attached to any TaskIQ broker, even though Horizon's control plane is Redis-backed.
 
 ## Documentation
 

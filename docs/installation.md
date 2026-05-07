@@ -1,6 +1,8 @@
 # Installation
 
-TaskIQ Horizon currently relies on Redis for storing its real-time metrics and job data. 
+TaskIQ Horizon currently relies on Redis for its dashboard state, workload inspection, metrics, and job data.
+
+You may still attach the middleware layer to any TaskIQ broker, but the production-ready Horizon supervisor and dashboard path is Redis-backed today.
 
 To install the package into your project, use pip:
 
@@ -21,11 +23,23 @@ Create a `horizon.py` configuration file in your host application to define how 
 ```python
 # config/horizon.py
 from taskiq_horizon.config import HorizonConfig, TrimSettings
+from taskiq_horizon.supervisor import SupervisorOptions
 from myapp.settings import settings
 
 horizon_config = HorizonConfig(
     prefix="myapp-horizon:",
     redis_url=settings.REDIS_URL,
+    environments={
+        "production": {
+            "supervisor-1": SupervisorOptions(
+                broker_path="myapp.broker:broker",
+                queue="default,high,low",
+                min_processes=1,
+                max_processes=10,
+                balance="auto",
+            )
+        }
+    },
     trim=TrimSettings(
         recent=60,         # Keep recent jobs for 1 hour
         pending=60,        # Keep pending jobs for 1 hour
@@ -42,6 +56,7 @@ In your FastAPI lifespan or application factory, you need to register the Horizo
 
 ```python
 from fastapi import FastAPI
+import redis.asyncio as aioredis
 from taskiq_horizon.service_provider import register_services, mount_dashboard
 from config.horizon import horizon_config
 from myapp.broker import broker
@@ -74,18 +89,24 @@ You can create a standalone entry point for it:
 # run_horizon.py
 import asyncio
 import logging
+import redis.asyncio as aioredis
 from taskiq_horizon.master_supervisor import MasterSupervisor
+from taskiq_horizon.event_dispatcher import EventDispatcher
 from my_di_container import container
+from myapp.settings import settings
 
 async def run():
     logging.basicConfig(level=logging.INFO)
-    
-    # Resolves all repositories registered earlier
+
     master = MasterSupervisor(
-        name="master-1",
-        container=container,
+        config=container.make("horizon.config"),
+        redis=aioredis.from_url(container.make("horizon.config").redis_url),
+        dispatcher=EventDispatcher(),
+        job_repo=container.make("horizon.jobs"),
+        wait_time_calculator=container.make("horizon.wait_time"),
+        environment=settings.ENVIRONMENT,
     )
-    await master.run()
+    await master.monitor()
 
 if __name__ == "__main__":
     asyncio.run(run())

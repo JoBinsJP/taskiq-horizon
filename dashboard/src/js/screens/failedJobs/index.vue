@@ -112,6 +112,7 @@
                         }, 5000);
                     }).catch(error => {
                         this.retryingJobs = this.retryingJobs.filter(job => job != id);
+                        this.showErrorAlert(this.extractErrorMessage(error, 'Unable to retry this failed job.'));
                     });
             },
 
