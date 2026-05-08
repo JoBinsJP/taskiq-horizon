@@ -16,7 +16,7 @@ import asyncio
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from taskiq_horizon.commands import COMMAND_MAP
 from taskiq_horizon.contracts.command_queue import CommandQueue
@@ -55,6 +55,7 @@ class SupervisorOptions:
     balance_max_shift: int = 1
     broker_path: str = ""
     worker_args: list[str] = field(default_factory=list)
+    worker_queue_env_var: str = "QUEUE_NAME"
 
     @property
     def balancing(self) -> bool:
@@ -64,10 +65,17 @@ class SupervisorOptions:
     def auto_scaling(self) -> bool:
         return self.balance != "simple"
 
+    @property
+    def queue_names(self) -> list[str]:
+        return [queue.strip() for queue in self.queue.split(",") if queue.strip()]
+
+    def with_queue(self, queue: str) -> "SupervisorOptions":
+        return replace(self, queue=queue)
+
 
 class Supervisor:
     """
-    Manages a ProcessPool and responds to commands.
+    Manages one or more ProcessPools and responds to commands.
 
     Mirrors the monitor loop in Laravel's Supervisor.php:
     1. Process pending commands from the Redis command queue
@@ -91,11 +99,35 @@ class Supervisor:
         self.dispatcher = dispatcher
         self.autoscaler = autoscaler
 
-        self.pool = ProcessPool(options.broker_path, options.queue, options.worker_args)
+        self.process_pools = self._create_process_pools()
+        self.pool = next(iter(self.process_pools.values()), None)
         self.working = True  # False when paused
         self.running = True  # False when terminated
 
         self._last_autoscale: float = 0.0
+        self._needs_balance = False
+
+    def _create_process_pools(self) -> dict[str, ProcessPool]:
+        if self.options.balancing:
+            queues = self.options.queue_names or [self.options.queue]
+            return {
+                queue: ProcessPool(
+                    self.options.broker_path,
+                    queue,
+                    self.options.worker_args,
+                    self.options.worker_queue_env_var,
+                )
+                for queue in queues
+            }
+
+        return {
+            self.options.queue: ProcessPool(
+                self.options.broker_path,
+                self.options.queue,
+                self.options.worker_args,
+                self.options.worker_queue_env_var,
+            )
+        }
 
     async def monitor(self) -> None:
         """
@@ -108,22 +140,29 @@ class Supervisor:
         # Flush stale commands from a previous run
         await self.command_queue.flush(self.name)
 
-        # Initial scale to min_processes
-        self.pool.scale(self.options.min_processes)
+        # Initial scaling mirrors Horizon: balancing supervisors immediately
+        # rebalance their per-queue pools, while non-balancing supervisors
+        # start with a single pool scaled to the configured minimum.
+        if self.autoscaler and self.options.balancing:
+            await self._autoscale(force=True)
+        else:
+            self.scale(self.options.min_processes)
 
         while self.running:
             # 1. Consume pending commands
             await self._process_commands()
 
-            # 2. Monitor worker health + memory
-            self.pool.monitor(memory_limit_mb=self.options.memory)
-
-            # 3. Prune terminating workers
-            self.pool.prune_terminating(timeout=self.options.timeout)
-
-            # 4. Run autoscaler (if enabled and not paused)
+            # 2. Run autoscaler (if enabled and not paused)
             if self.working and self.autoscaler and self.options.balancing:
                 await self._autoscale()
+
+            # 3. Monitor worker health + memory
+            if self.working:
+                for pool in self.process_pools.values():
+                    pool.monitor(memory_limit_mb=self.options.memory)
+
+            # 4. Prune terminating workers
+            self.prune_terminating_processes()
 
             # 5. Fire SupervisorLooped event
             await self.dispatcher.fire(SupervisorLooped(supervisor=self))
@@ -133,15 +172,17 @@ class Supervisor:
 
         # Cleanup — terminate all workers gracefully
         logger.info(f"Supervisor '{self.name}' shutting down...")
-        self.pool.terminate_all()
+        for pool in self.process_pools.values():
+            pool.terminate_all()
 
         # Wait for drain with timeout
         deadline = time.time() + self.options.timeout
-        while self.pool.total_process_count > 0:
-            self.pool.prune_terminating(timeout=self.options.timeout)
+        while self.total_process_count > 0:
+            self.prune_terminating_processes()
             if time.time() > deadline:
                 logger.warning("Drain timeout exceeded. Force killing remaining workers.")
-                self.pool.kill_all()
+                for pool in self.process_pools.values():
+                    pool.kill_all()
                 break
             await asyncio.sleep(0.5)
 
@@ -167,27 +208,16 @@ class Supervisor:
             else:
                 logger.warning(f"Unknown command: {cmd_name}")
 
-    async def _autoscale(self) -> None:
+    async def _autoscale(self, *, force: bool = False) -> None:
         """Run the autoscaler with cooldown enforcement."""
         now = time.time()
-        if (now - self._last_autoscale) < self.options.balance_cooldown:
+        if not force and not self._needs_balance and (now - self._last_autoscale) < self.options.balance_cooldown:
             return
 
         try:
-            target = await self.autoscaler.scale(self)
-            target = max(self.options.min_processes, min(target, self.options.max_processes))
-
-            # Apply balance_max_shift to limit per-cycle change
-            current = self.pool.active_process_count
-            diff = target - current
-            if abs(diff) > self.options.balance_max_shift:
-                diff = self.options.balance_max_shift if diff > 0 else -self.options.balance_max_shift
-                target = current + diff
-
-            if target != current:
-                self.pool.scale(target)
-
+            await self.autoscaler.scale(self)
             self._last_autoscale = now
+            self._needs_balance = False
         except Exception as e:
             logger.error(f"Autoscaler error: {e}")
 
@@ -206,8 +236,9 @@ class Supervisor:
     def restart(self) -> None:
         """Restart all workers — terminate current and respawn."""
         logger.info(f"Supervisor '{self.name}' restarting workers...")
-        self.pool.terminate_all()
-        self.pool.scale(self.options.min_processes)
+        self.working = True
+        for pool in self.process_pools.values():
+            pool.restart()
 
     def terminate(self, status: int = 0) -> None:
         """Gracefully terminate the supervisor."""
@@ -216,9 +247,45 @@ class Supervisor:
         logger.info(f"Supervisor '{self.name}' termination requested (status={status}).")
 
     def scale(self, target: int) -> None:
-        """Scale to a specific number of workers."""
-        target = max(self.options.min_processes, min(target, self.options.max_processes))
-        self.pool.scale(target)
+        """
+        Scale to a specific total number of workers.
+
+        When balancing is enabled, workers are distributed as evenly as
+        possible across the queue-specific pools.
+        """
+        target = max(0, int(target))
+        pool_count = max(1, len(self.process_pools))
+        self.options.max_processes = max(self.options.max_processes, target, pool_count)
+
+        if pool_count == 1:
+            next(iter(self.process_pools.values())).scale(target)
+            return
+
+        base, remainder = divmod(target, pool_count)
+        balance = {}
+        for index, queue in enumerate(self.process_pools):
+            balance[queue] = base + (1 if index < remainder else 0)
+
+        self.balance(balance)
+
+    def balance(self, balance: dict[str, int]) -> None:
+        """Scale the process pools to the provided per-queue counts."""
+        for queue, scale in balance.items():
+            pool = self.process_pools.get(queue)
+            if pool is not None:
+                pool.scale(max(0, int(scale)))
+
+    def prune_terminating_processes(self) -> None:
+        for pool in self.process_pools.values():
+            pool.prune_terminating(timeout=self.options.timeout)
+
+    @property
+    def total_process_count(self) -> int:
+        return sum(pool.total_process_count for pool in self.process_pools.values())
+
+    @property
+    def active_process_count(self) -> int:
+        return sum(pool.active_process_count for pool in self.process_pools.values())
 
     # ── Status ───────────────────────────────────────────────────────────
 
@@ -236,7 +303,7 @@ class Supervisor:
             "name": self.name,
             "status": self.status,
             "pid": os.getpid(),
-            "processes": {self.options.queue: self.pool.active_process_count},
+            "processes": {queue: pool.active_process_count for queue, pool in self.process_pools.items()},
             "options": {
                 "queue": self.options.queue,
                 "balance": self.options.balance,

@@ -81,7 +81,7 @@ async def test_mount_dashboard_uses_configured_path_and_dist_assets(tmp_path):
         response = await client.get("/ops/horizon")
 
     assert response.status_code == 200
-    assert "<strong>Alatazone</strong> - Ops" in response.text
+    assert "<strong>Ops</strong>" in response.text
     assert '<style data-scheme="dark">body{color:white;}</style>' in response.text
     assert 'window.Horizon = {"path": "ops/horizon", "proxy_path": "/proxy"};' in response.text
     assert '<script type="module" src="/ops/horizon/assets/app.js"></script>' in response.text

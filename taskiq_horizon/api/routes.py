@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from taskiq_horizon.jobs import RetryFailedJob
@@ -63,6 +63,32 @@ class MonitorTagRequest(BaseModel):
 
 class ScaleRequest(BaseModel):
     scale: int
+
+
+def _batch_retry_failure(missing: list[str], errors: dict[str, str]) -> tuple[int, dict]:
+    parts = []
+
+    if errors:
+        count = len(errors)
+        suffix = "" if count == 1 else "s"
+        parts.append(f"{count} failed job{suffix} could not be retried")
+
+    if missing:
+        count = len(missing)
+        suffix = "" if count == 1 else "s"
+        parts.append(f"{count} failed job{suffix} could not be found")
+
+    message = ". ".join(parts) if parts else "No failed jobs could be retried"
+    detail = {
+        "message": message,
+        "missing": missing,
+        "errors": errors,
+    }
+
+    if errors:
+        return 422, detail
+
+    return 404, detail
 
 
 @router.get("/stats")
@@ -183,39 +209,41 @@ async def stop_monitoring(tag: str, tags=Depends(get_tag_repo)):
 
 @router.get("/batches")
 async def get_batches(
-    starting_at: str | None = None,
+    before_id: str | None = None,
     query: str | None = None,
     batches=Depends(get_batch_repo),
 ):
     if not batches:
         return {"batches": [], "total": 0}
-    return await batches.get_batches(limit=50, before_id=starting_at, search_query=query)
+    return await batches.get_batches(limit=50, before_id=before_id, search_query=query)
 
 
 @router.get("/batches/{batch_id}")
 async def get_batch_detail(batch_id: str, request: Request, batches=Depends(get_batch_repo)):
     if not batches:
-        return {"error": "Not Configured"}
+        raise HTTPException(status_code=501, detail="Not Configured")
     broker = getattr(request.app.state, "broker", None)
 
     batch = await batches.find_batch(batch_id, broker=broker)
     if not batch:
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
     return batch
 
 
 @router.post("/batches/retry/{batch_id}")
 async def retry_batch(
     batch_id: str,
+    request: Request,
     batches=Depends(get_batch_repo),
     retry_jobs=Depends(get_retry_job_handler),
 ):
     if not batches:
-        return {"error": "Not Configured"}
+        raise HTTPException(status_code=501, detail="Not Configured")
 
-    batch = await batches.find_batch(batch_id, broker=None)
+    broker = getattr(request.app.state, "broker", None)
+    batch = await batches.find_batch(batch_id, broker=broker)
     if not batch or "batch" not in batch:
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
 
     failed_job_ids = batch["batch"].get("failedJobIds", [])
     if not failed_job_ids:
@@ -236,6 +264,10 @@ async def retry_batch(
         except Exception as exc:
             missing.append(failed_job_id)
             errors[failed_job_id] = str(exc)
+
+    if not retried and (missing or errors):
+        status_code, detail = _batch_retry_failure(missing, errors)
+        raise HTTPException(status_code=status_code, detail=detail)
 
     return {
         "status": "retry_dispatched",
@@ -301,7 +333,7 @@ async def get_silenced_jobs(starting_at: int = -1, jobs=Depends(get_job_repo)):
 async def get_job(job_id: str, jobs=Depends(get_job_repo)):
     job_results = await jobs.get_jobs([job_id])
     if not job_results:
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
     return job_results[0]
 
 
@@ -309,7 +341,7 @@ async def get_job(job_id: str, jobs=Depends(get_job_repo)):
 async def get_failed_job(job_id: str, jobs=Depends(get_job_repo)):
     job = await jobs.find_failed(job_id)
     if not job:
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
     return job
 
 
@@ -317,7 +349,7 @@ async def get_failed_job(job_id: str, jobs=Depends(get_job_repo)):
 async def delete_failed_job(job_id: str, jobs=Depends(get_job_repo)):
     deleted = await jobs.delete_failed(job_id)
     if not deleted:
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
     return {"status": "deleted", "id": job_id}
 
 
@@ -329,10 +361,10 @@ async def retry_job(
     try:
         retry_id = await retry_jobs.handle(job_id)
     except RuntimeError as exc:
-        return {"error": str(exc)}
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     if retry_id is None:
-        return {"error": "Not Found"}
+        raise HTTPException(status_code=404, detail="Not Found")
 
     return {"status": "retry_dispatched", "id": retry_id}
 

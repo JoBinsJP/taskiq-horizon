@@ -279,13 +279,8 @@ def _render_dashboard(*, config, dist_dir: Path, assets_prefix: str) -> str:
     styles_dark = (dist_dir / "styles-dark.css").read_text()
     app_css = (dist_dir / "app.css").read_text()
 
-    title = "Alatazone"
-    if getattr(config, "name", ""):
-        title = f"{title} - {config.name}"
-
-    header = "<strong>Alatazone</strong>"
-    if getattr(config, "name", ""):
-        header = f"{header} - {html.escape(config.name)}"
+    title = getattr(config, "name", "") or "TaskIQ Horizon"
+    header = f"<strong>{html.escape(title)}</strong>"
 
     inline_css = (
         f'<style data-scheme="light">{styles}</style>\n'

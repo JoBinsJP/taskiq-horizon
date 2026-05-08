@@ -69,5 +69,46 @@ export default {
                 {}
             );
         },
+
+        /**
+         * Show a modal alert using the shared dashboard component.
+         */
+        showAlert(type, message, autoClose = 0) {
+            this.$root.alert.type = type;
+            this.$root.alert.message = message;
+            this.$root.alert.autoClose = autoClose;
+        },
+
+        /**
+         * Show an error alert using the shared dashboard component.
+         */
+        showErrorAlert(message) {
+            this.showAlert('error', message);
+        },
+
+        /**
+         * Extract a readable error message from an HTTP client error.
+         */
+        extractErrorMessage(error, fallback = 'Something went wrong.') {
+            const detail = error?.response?.data?.detail;
+
+            if (typeof detail === 'string' && detail.trim()) {
+                return detail;
+            }
+
+            if (detail && typeof detail === 'object') {
+                if (typeof detail.message === 'string' && detail.message.trim()) {
+                    return detail.message;
+                }
+            }
+
+            const message = error?.response?.data?.error;
+
+            if (typeof message === 'string' && message.trim()) {
+                return message;
+            }
+
+            return fallback;
+        },
     },
 };

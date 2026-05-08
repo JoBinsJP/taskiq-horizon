@@ -7,6 +7,7 @@ from pool management.
 """
 
 import logging
+import os
 import subprocess
 import sys
 from typing import Optional
@@ -24,12 +25,32 @@ class WorkerProcess:
     - Expose the PID for memory inspection.
     """
 
-    def __init__(self, broker_path: str, queue: str = "default", worker_args: Optional[list[str]] = None) -> None:
+    def __init__(
+        self,
+        broker_path: str,
+        queue: str = "default",
+        worker_args: Optional[list[str]] = None,
+        queue_env_var: str = "QUEUE_NAME",
+    ) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
+        self.queue_env_var = queue_env_var
         self.process: Optional[subprocess.Popen] = None
         self.pid: Optional[int] = None
+
+    def _build_env(self) -> dict[str, str]:
+        """
+        Build the worker subprocess environment.
+
+        TODO: if Horizon grows first-class non-Redis broker support, replace
+        this single env-var hook with a broker-specific worker targeting
+        strategy. SQS, for example, uses different queue selection semantics
+        than Redis' QUEUE_NAME-based multi-queue worker boot.
+        """
+        env = os.environ.copy()
+        env[self.queue_env_var] = self.queue
+        return env
 
     def start(self) -> None:
         """Spawn the worker subprocess."""
@@ -45,6 +66,7 @@ class WorkerProcess:
 
         self.process = subprocess.Popen(
             cmd,
+            env=self._build_env(),
             stdout=sys.stdout,
             stderr=sys.stderr,
         )

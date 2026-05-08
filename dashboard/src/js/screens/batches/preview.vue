@@ -22,6 +22,30 @@
 
 
         methods: {
+            batchRetryMessage(result) {
+                const retried = result.retried || 0;
+                const errorsCount = Object.keys(result.errors || {}).length;
+                const missingCount = (result.missing || []).length;
+                const parts = [];
+
+                if (retried) {
+                    const suffix = retried === 1 ? '' : 's';
+                    parts.push(`Retry dispatched for ${retried} failed job${suffix}.`);
+                }
+
+                if (errorsCount) {
+                    const suffix = errorsCount === 1 ? '' : 's';
+                    parts.push(`${errorsCount} failed job${suffix} could not be retried.`);
+                }
+
+                if (missingCount) {
+                    const suffix = missingCount === 1 ? '' : 's';
+                    parts.push(`${missingCount} failed job${suffix} could not be found.`);
+                }
+
+                return parts.join(' ');
+            },
+
             loadBatch(reload = true) {
                 if (reload) {
                     this.ready = false;
@@ -48,12 +72,22 @@
                 this.retrying = true;
 
                 this.$http.post(Horizon.basePath + '/api/batches/retry/' + id)
-                    .then(() => {
+                    .then((response) => {
+                        const result = response.data || {};
+
+                        if (Object.keys(result.errors || {}).length || (result.missing || []).length) {
+                            this.showErrorAlert(this.batchRetryMessage(result));
+                        }
+
                         setTimeout(() => {
                             this.loadBatch(false);
 
                             this.retrying = false;
                         }, 3000);
+                    })
+                    .catch(error => {
+                        this.retrying = false;
+                        this.showErrorAlert(this.extractErrorMessage(error, 'Unable to retry failed batch jobs.'));
                     });
             },
 

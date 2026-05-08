@@ -71,6 +71,10 @@
 
                             this.retrying = false;
                         }, 3000);
+                    })
+                    .catch(error => {
+                        this.retrying = false;
+                        this.showErrorAlert(this.extractErrorMessage(error, 'Unable to retry this failed job.'));
                     });
             },
 

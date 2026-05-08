@@ -68,10 +68,23 @@ from taskiq_horizon.supervisor import SupervisorOptions
 
 options = SupervisorOptions(
     name="supervisor-1",
-    broker="myapp.broker:broker",
-    queue="high,default",
+    broker_path="myapp.broker:broker",
+    queue="high,default,low",
     min_processes=1,
-    max_processes=10,        # Enable autoscaling by setting a max > min
-    balance="auto",          # 'auto', 'simple', or 'false'
+    max_processes=10,             # Global cap across all pools in this supervisor
+    balance="auto",               # 'auto', 'simple', or 'false'
+    auto_scaling_strategy="time", # 'time' or 'size'
 )
 ```
+
+### Balancing Modes
+
+- `balance="auto"` creates one process pool per queue and allocates workers by queue pressure. By default it uses time-to-clear, and `auto_scaling_strategy="size"` switches the ratio to job counts.
+- `balance="simple"` also creates one process pool per queue, but splits workers evenly instead of using runtime pressure.
+- `balance="false"` keeps a single multi-queue TaskIQ worker pool. Use this when you explicitly want one worker process to listen to the full comma-separated queue string.
+
+### Scaling Notes
+
+- `max_processes` is a supervisor-wide cap, not a per-queue cap.
+- `min_processes` is the minimum target per queue while balancing, but the global `max_processes` cap still wins if the two conflict.
+- If you configure more queues than `max_processes`, some queues may temporarily sit at `0` workers until the next rebalance cycle. This is expected and mirrors Laravel Horizon's global-cap behavior.

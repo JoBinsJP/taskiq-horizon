@@ -2,6 +2,8 @@
 
 TaskIQ Horizon is designed to maintain high functional and structural parity with [Laravel Horizon](https://horizon.laravel.com/). Instead of running isolated TaskIQ worker CLI commands, Horizon introduces a robust, multi-tier process management architecture.
 
+The production-ready control plane today is Redis-backed. That includes dashboard state, metrics, workload inspection, wait-time calculation, and supervisor heartbeats.
+
 ## The Hierarchy
 
 1. **Master Supervisor**
@@ -12,6 +14,8 @@ TaskIQ Horizon is designed to maintain high functional and structural parity wit
 2. **Supervisors**
     - Directly manage a specific set of queues.
     - Utilize an **Autoscaler** to continuously adjust the number of active worker processes based on the current workload.
+    - When balancing is enabled, create one **ProcessPool** per queue, matching Laravel Horizon's queue-by-queue balancing model.
+    - When `balance="false"`, retain a single combined pool for the full comma-separated queue string.
     - Restart individual failed workers.
     
 3. **Worker Processes**
@@ -20,7 +24,7 @@ TaskIQ Horizon is designed to maintain high functional and structural parity wit
     
 ## Design Parity with Laravel
 
-TaskIQ Horizon achieves ~95% structural parity with Laravel Horizon's internals. 
+TaskIQ Horizon closely follows Laravel Horizon's internal domain model on the Redis runtime path.
 
 If you are familiar with Laravel Horizon's codebase, you will recognize the internal domain layout:
 

@@ -32,9 +32,6 @@ dev = [
     "pre-commit>=4.0",
 ]
 
-[project.scripts]
-taskiq-horizon-supervisor = "taskiq_horizon.supervisor.__main__:cli"
-
 [tool.hatch.build.targets.wheel]
 include = [
     "taskiq_horizon/**/*",

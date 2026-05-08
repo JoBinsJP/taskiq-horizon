@@ -26,10 +26,17 @@ class ProcessPool:
     This separation is what enables zero-downtime scaling.
     """
 
-    def __init__(self, broker_path: str, queue: str = "default", worker_args: Optional[list[str]] = None) -> None:
+    def __init__(
+        self,
+        broker_path: str,
+        queue: str = "default",
+        worker_args: Optional[list[str]] = None,
+        queue_env_var: str = "QUEUE_NAME",
+    ) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
+        self.queue_env_var = queue_env_var
         self.workers: list[WorkerProcess] = []
         self.terminating: list[tuple[WorkerProcess, float]] = []  # (worker, terminated_at)
 
@@ -55,7 +62,7 @@ class ProcessPool:
     def _scale_up(self, count: int) -> None:
         """Spawn `count` new workers."""
         for _ in range(count):
-            worker = WorkerProcess(self.broker_path, self.queue, self.worker_args)
+            worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
             worker.start()
             self.workers.append(worker)
         logger.info(f"Pool [{self.queue}] scaled UP by {count} → {len(self.workers)} active")
@@ -118,7 +125,7 @@ class ProcessPool:
         for worker in self.workers:
             if not worker.is_alive():
                 logger.warning(f"Worker PID={worker.pid} died unexpectedly. Respawning...")
-                new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args)
+                new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
                 new_worker.start()
                 alive.append(new_worker)
                 continue
@@ -132,7 +139,7 @@ class ProcessPool:
                 worker.terminate()
                 self.terminating.append((worker, time.time()))
                 # Respawn immediately
-                new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args)
+                new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
                 new_worker.start()
                 alive.append(new_worker)
                 continue
@@ -148,6 +155,12 @@ class ProcessPool:
             worker.terminate()
             self.terminating.append((worker, now))
         self.workers = []
+
+    def restart(self) -> None:
+        """Restart the pool while preserving its active worker count."""
+        current = self.active_process_count
+        self.terminate_all()
+        self.scale(current)
 
     def kill_all(self) -> None:
         """Force kill all workers (for hard shutdown)."""
