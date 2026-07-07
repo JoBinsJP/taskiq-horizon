@@ -1,4 +1,4 @@
-from cleo.commands.command import Command
+from app.core.foundation.console import Command
 
 
 class HorizonPauseCommand(Command):
