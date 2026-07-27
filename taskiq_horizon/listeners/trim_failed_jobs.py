@@ -1,5 +1,5 @@
 r"""
-TrimFailedJobs — mirrors Laravel\Horizon\Listeners\TrimFailedJobs.
+TrimFailedJobs — ports the upstream failed-jobs trim listener.
 
 Periodically trims failed job entries from Redis.
 r"""

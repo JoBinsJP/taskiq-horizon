@@ -1,5 +1,5 @@
 r"""
-MonitorMasterSupervisorMemory — mirrors Laravel\Horizon\Listeners\MonitorMasterSupervisorMemory.
+MonitorMasterSupervisorMemory — ports the upstream master-memory monitor listener.
 
 Checks the master supervisor's memory usage on every loop iteration.
 If the master exceeds its memory limit, fires MasterSupervisorOutOfMemory

@@ -1,5 +1,5 @@
 r"""
-BalanceCommand — mirrors Laravel\Horizon\MasterSupervisorCommands\Balance.
+BalanceCommand — ports the upstream balance command.
 
 Triggers an immediate autoscaler rebalance across all supervisors
 managed by a master. Normally autoscaling runs on a timer, but this

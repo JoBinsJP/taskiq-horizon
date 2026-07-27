@@ -1,7 +1,7 @@
 """
 Service Provider — package-side wiring for TaskIQ Horizon.
 
-Mirrors Laravel's HorizonServiceProvider + ServiceBindings trait.
+Ports the upstream service-provider wiring and service bindings.
 This module lives in the PACKAGE and knows how to bind all services
 into any container that supports .singleton() and .make().
 
@@ -43,7 +43,7 @@ def register_services(container: Container) -> None:
     """
     Bind all Horizon services as lazy singletons.
 
-    Mirrors ServiceBindings trait in Laravel Horizon.
+    Matches the upstream service bindings.
     Requires 'horizon.config' and 'horizon.redis' to already be registered.
     """
 
@@ -120,7 +120,7 @@ def mount_dashboard(
     logger.info("Horizon dashboard mounted at %s", mount_prefix or "/")
 
 
-# ── Private Factories (mirrors ServiceBindings trait) ────────────────────────
+# ── Private Factories (matches the upstream service bindings) ────────────────
 
 
 def _make_job_repo(container: Container):
@@ -367,8 +367,8 @@ def commands() -> list:
 
 class HorizonServiceProvider:
     """
-    OOP Service Provider overlay for TaskIQ Horizon.
-    Provides Laravel 1:1 parity with the host framework's ServiceProvider pattern.
+    OOP wrapper around register_services() with a register()/boot() lifecycle,
+    for host apps that wire services through provider objects.
     """
 
     def __init__(self, app: Container):

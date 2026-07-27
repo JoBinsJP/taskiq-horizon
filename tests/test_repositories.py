@@ -228,7 +228,7 @@ class TestRedisJobRepository:
 
     @pytest.mark.asyncio
     async def test_failed_merges_exception_provided_context(self, repo):
-        """An exception exposing a Laravel-style context dict is merged in."""
+        """An exception exposing an upstream-style context dict is merged in."""
         payload = self._payload("failing-job-ctx2")
         await repo.pushed("redis", "default", payload)
 

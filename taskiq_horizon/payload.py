@@ -12,7 +12,7 @@ from taskiq.message import TaskiqMessage
 @dataclass
 class TaskPayload:
     """
-    Wrapper around TaskiqMessage analogous to Laravel Horizon's JobPayload.
+    Wrapper around TaskiqMessage — plays the role of the upstream job payload.
     Adds stateful properties like tags, silenced flag, and push timings.
     """
 

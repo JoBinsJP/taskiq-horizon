@@ -3,7 +3,7 @@ import time
 
 class Stopwatch:
     """
-    Port of Laravel Horizon's Stopwatch for managing graceful zero-downtime timeouts.
+    Port of the upstream stopwatch for managing graceful zero-downtime timeouts.
     """
 
     def __init__(self):

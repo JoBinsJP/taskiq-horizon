@@ -1,5 +1,5 @@
 r"""
-TerminateCommand — mirrors Laravel\Horizon\SupervisorCommands\Terminate.
+TerminateCommand — ports the upstream terminate command.
 
 Gracefully terminates the supervisor and all its workers.
 r"""

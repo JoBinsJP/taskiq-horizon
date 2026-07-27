@@ -1,5 +1,5 @@
 """
-Domain Events — mirrors Laravel Horizon's Events/ directory.
+Domain Events — ports the upstream Events/ directory.
 
 Each event is a simple dataclass carrying context about what happened.
 Events are fired by the supervisor loop and middleware, and consumed

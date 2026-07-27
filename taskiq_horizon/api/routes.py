@@ -106,7 +106,7 @@ async def get_stats(
     max_tp = await metrics.queue_with_maximum_throughput()
 
     waits = await wait_time.calculate()
-    # The dashboard parses the wait key as Laravel's "connection:queue" pair
+    # The dashboard parses the wait key as a "connection:queue" pair
     # (`Object.keys(wait)[0].split(':')[1]`), so key it as "redis:{queue}".
     wait_val = {f"redis:{queue}": seconds for queue, seconds in list(waits.items())[:1]} if waits else {}
 

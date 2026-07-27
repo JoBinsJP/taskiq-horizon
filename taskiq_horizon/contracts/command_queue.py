@@ -1,5 +1,5 @@
 r"""
-HorizonCommandQueue contract — mirrors Laravel\Horizon\Contracts\HorizonCommandQueue.
+HorizonCommandQueue contract — ports the upstream command-queue contract.
 
 Defines the interface for pushing commands to supervisors via Redis.
 r"""

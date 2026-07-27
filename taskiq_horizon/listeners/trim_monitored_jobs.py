@@ -1,5 +1,5 @@
 r"""
-TrimMonitoredJobs — mirrors Laravel\Horizon\Listeners\TrimMonitoredJobs.
+TrimMonitoredJobs — ports the upstream monitored-jobs trim listener.
 
 Periodically trims monitored (tagged) job entries from Redis.
 r"""

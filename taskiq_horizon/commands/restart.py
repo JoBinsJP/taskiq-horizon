@@ -1,5 +1,5 @@
 r"""
-RestartCommand — mirrors Laravel\Horizon\SupervisorCommands\Restart.
+RestartCommand — ports the upstream restart command.
 
 Terminates all workers and respawns them. Used for deploying new code.
 r"""

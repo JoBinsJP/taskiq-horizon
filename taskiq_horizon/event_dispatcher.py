@@ -1,8 +1,8 @@
 """
 Lightweight Event Dispatcher — pub/sub bus for Horizon domain events.
 
-This is the Python equivalent of Laravel's Illuminate\\Events\\Dispatcher,
-scoped to Horizon's needs. Supports both sync and async listeners.
+A minimal synchronous event dispatcher scoped to Horizon's needs.
+Supports both sync and async listeners.
 
 Usage:
     from taskiq_horizon.event_dispatcher import EventDispatcher

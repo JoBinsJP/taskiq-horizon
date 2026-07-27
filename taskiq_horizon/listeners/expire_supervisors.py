@@ -1,5 +1,5 @@
 r"""
-ExpireSupervisors — mirrors Laravel\Horizon\Listeners\ExpireSupervisors.
+ExpireSupervisors — ports the upstream supervisor-expiry listener.
 
 Flushes stale master/supervisor heartbeats from Redis on every loop.
 Unlike trim listeners, this runs on EVERY loop iteration (no throttle)

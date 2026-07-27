@@ -6,7 +6,7 @@ from redis.asyncio import Redis
 
 class Lock:
     """
-    Port of Laravel Horizon's Lock.php for distributed locking via setnx/expire.
+    Port of the upstream lock for distributed locking via setnx/expire.
     """
 
     def __init__(self, redis: Redis):

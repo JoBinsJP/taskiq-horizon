@@ -1,5 +1,5 @@
 r"""
-ScaleCommand — mirrors Laravel\Horizon\SupervisorCommands\Scale.
+ScaleCommand — ports the upstream scale command.
 
 Sets the target number of worker processes for a supervisor.
 r"""

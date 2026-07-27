@@ -1,5 +1,5 @@
 r"""
-ContinueWorkingCommand — mirrors Laravel\Horizon\SupervisorCommands\ContinueWorking.
+ContinueWorkingCommand — ports the upstream continue-working command.
 
 Resumes a paused supervisor so it accepts new jobs again.
 r"""

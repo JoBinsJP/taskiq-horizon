@@ -12,7 +12,7 @@ from taskiq_horizon.payload import TaskPayload
 
 class RetryFailedJob:
     """
-    Mirror Laravel Horizon's RetryFailedJob orchestration in Python.
+    Ports the upstream failed-job retry orchestration.
 
     The serialized retry state is internal package data intended for trusted
     Redis storage only.

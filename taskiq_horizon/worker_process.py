@@ -1,5 +1,5 @@
 """
-WorkerProcess — mirrors Laravel Horizon's WorkerProcess.
+WorkerProcess — ports the upstream worker process wrapper.
 
 A thin wrapper around a subprocess.Popen that represents a single
 TaskIQ worker OS process. Separates concern of process management

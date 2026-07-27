@@ -1,5 +1,5 @@
 """
-Supervisor — mirrors Laravel Horizon's Supervisor.php.
+Supervisor — ports the upstream supervisor loop.
 
 Manages a ProcessPool, consumes commands from the CommandQueue, runs
 the AutoScaler, and fires SupervisorLooped events on each loop iteration.
@@ -30,7 +30,7 @@ logger = logging.getLogger("horizon.supervisor")
 @dataclass
 class SupervisorOptions:
     """
-    Configuration for a single supervisor — mirrors SupervisorOptions.php.
+    Configuration for a single supervisor — matches the upstream supervisor options.
 
     Each supervisor manages one queue (or comma-separated set of queues)
     with its own scaling and resource limits.
@@ -71,7 +71,7 @@ class Supervisor:
     """
     Manages one or more ProcessPools and responds to commands.
 
-    Mirrors the monitor loop in Laravel's Supervisor.php:
+    Follows the upstream monitor loop:
     1. Process pending commands from the Redis command queue
     2. Run the autoscaler (if enabled)
     3. Monitor worker health and memory

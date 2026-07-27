@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 class AutoScaler:
     """
-    Balance a supervisor's worker pools using Laravel Horizon's queue-based model.
+    Balance a supervisor's worker pools using the upstream queue-based model.
 
     When balancing is enabled, each queue gets its own process pool and the
     autoscaler adjusts those pools independently while respecting the

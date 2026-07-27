@@ -1,5 +1,5 @@
 r"""
-MonitorSupervisorMemory — mirrors Laravel\Horizon\Listeners\MonitorSupervisorMemory.
+MonitorSupervisorMemory — ports the upstream supervisor-memory monitor listener.
 
 Checks each supervisor's memory usage on every supervisor loop. Supervisors
 are asyncio tasks inside the master process (not OS processes), so a

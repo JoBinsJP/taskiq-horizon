@@ -1,5 +1,5 @@
 r"""
-MonitorWaitTimes — mirrors Laravel\Horizon\Listeners\MonitorWaitTimes.
+MonitorWaitTimes — ports the upstream wait-time monitor listener.
 
 Periodically calculates queue wait times and fires LongWaitDetected
 events when thresholds are exceeded. Self-throttled to ~1 minute.

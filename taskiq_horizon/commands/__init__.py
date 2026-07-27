@@ -1,5 +1,5 @@
 """
-Supervisor Commands — mirrors Laravel Horizon's SupervisorCommands/ directory.
+Supervisor Commands — ports the upstream supervisor commands.
 
 Each command is a simple class with a `process(supervisor, options)` method.
 Commands are consumed from the RedisCommandQueue on each supervisor loop.

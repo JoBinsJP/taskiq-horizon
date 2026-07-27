@@ -28,7 +28,7 @@ class FakeMetrics:
 
 
 class TestWaitTimeCalculator:
-    """Tests for WaitTimeCalculator — mirrors Laravel's WaitTimeCalculator.php."""
+    """Tests for WaitTimeCalculator — covers the upstream wait-time behavior."""
 
     @pytest.mark.asyncio
     async def test_calculate_empty_queues(self):
@@ -158,7 +158,7 @@ class TestWaitTimeCalculator:
 
 
 class TestRedisWorkloadRepository:
-    """Tests for RedisWorkloadRepository — mirrors Laravel's RedisWorkloadRepository.php."""
+    """Tests for RedisWorkloadRepository — covers the upstream workload behavior."""
 
     @pytest_asyncio.fixture
     async def supervisor_repo(self, redis):

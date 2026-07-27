@@ -1,5 +1,5 @@
 r"""
-TrimRecentJobs — mirrors Laravel\Horizon\Listeners\TrimRecentJobs.
+TrimRecentJobs — ports the upstream recent-jobs trim listener.
 
 Periodically trims recent job entries from Redis. Self-throttled to run
 no more than once per `frequency` seconds, even though the event fires

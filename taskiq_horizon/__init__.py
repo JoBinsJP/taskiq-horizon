@@ -1,5 +1,5 @@
 """
-Alatazone: A port of Laravel Horizon for TaskIQ.
+Alatazone: Queue supervisor and dashboard for TaskIQ.
 
 Bring a beautiful monitoring dashboard and queue metrics to TaskIQ.
 """

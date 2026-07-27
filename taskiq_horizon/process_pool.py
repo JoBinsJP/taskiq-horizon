@@ -1,5 +1,5 @@
 """
-ProcessPool — mirrors Laravel Horizon's ProcessPool.php.
+ProcessPool — ports the upstream process pool.
 
 Manages a set of WorkerProcesses for a single queue. Tracks
 alive and terminating workers separately to enable graceful
@@ -18,7 +18,7 @@ class ProcessPool:
     """
     A pool of WorkerProcesses for a single queue.
 
-    Mirrors Laravel's ProcessPool which tracks:
+    Like the upstream pool, tracks:
     - Active workers (processing or idle)
     - Terminating workers (sent SIGTERM, waiting to drain)
 
@@ -95,7 +95,7 @@ class ProcessPool:
 
         Workers that have exited naturally are pruned. Workers that
         haven't exited within `timeout` seconds are force-killed.
-        Mirrors Laravel's PruneTerminatingProcesses listener.
+        Matches the upstream terminating-process pruning behavior.
         """
         now = time.time()
         still_terminating = []
@@ -122,7 +122,7 @@ class ProcessPool:
         Pause the pool — suspend every active worker with SIGSTOP.
 
         Terminating workers are left alone so they can finish draining.
-        Mirrors Laravel Horizon's real pause semantics: paused workers stop
+        Matches the upstream pause semantics: paused workers stop
         consuming jobs entirely.
         """
         self.paused = True

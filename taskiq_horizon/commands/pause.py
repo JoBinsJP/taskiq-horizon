@@ -1,5 +1,5 @@
 r"""
-PauseCommand — mirrors Laravel\Horizon\SupervisorCommands\Pause.
+PauseCommand — ports the upstream pause command.
 
 Pauses a supervisor, preventing it from picking up new jobs.
 Workers finish their current jobs but don't accept new ones.

@@ -1,5 +1,5 @@
 """
-Wait Time Calculator — mirrors Laravel Horizon's WaitTimeCalculator.php.
+Wait Time Calculator — ports the upstream wait-time calculator.
 
 Calculates the estimated time to clear each queue based on:
   - Queue depth (via Redis LLEN or injected fetcher)
@@ -17,7 +17,7 @@ from taskiq_horizon.contracts.metrics_repository import MetricsRepository
 
 class WaitTimeCalculator:
     """
-    Mirrors Laravel\\Horizon\\WaitTimeCalculator.
+    Ports the upstream wait-time calculator.
 
     Dependencies:
       - metrics_repo: for runtime_for_queue (average ms per job)
@@ -48,7 +48,7 @@ class WaitTimeCalculator:
         """
         Get the total process count assigned to a queue across all supervisors.
 
-        Mirrors WaitTimeCalculator::totalProcessesFor() in Laravel Horizon.
+        Matches the upstream total-processes-per-queue calculation.
         """
         if not self.supervisor_fetcher:
             return 0
@@ -70,7 +70,7 @@ class WaitTimeCalculator:
 
         For each queue: wait = (queue_size * avg_runtime_ms) / total_processes / 1000
 
-        Mirrors WaitTimeCalculator::calculate() in Laravel Horizon.
+        Matches the upstream wait-time calculation.
         Returns {queue_name: wait_seconds}, sorted descending.
         """
         queues = await self.metrics_repo.measured_queues()
@@ -79,14 +79,14 @@ class WaitTimeCalculator:
         for q in queues:
             wait_times[q] = await self.calculate_time_to_clear(q)
 
-        # Sort descending (longest wait first) — matches Laravel's ->sort()->reverse()
+        # Sort descending (longest wait first), matching upstream ordering
         return dict(sorted(wait_times.items(), key=lambda x: x[1], reverse=True))
 
     async def calculate_for(self, queue: str) -> float:
         """
         Calculate wait time for a single queue in seconds.
 
-        Mirrors WaitTimeCalculator::calculateFor() in Laravel Horizon.
+        Matches the upstream single-queue wait-time calculation.
         """
         return await self.calculate_time_to_clear(queue)
 
@@ -97,9 +97,9 @@ class WaitTimeCalculator:
         Formula: (queue_size * avg_runtime_ms) / total_processes / 1000 ms
 
         If total_processes is 0, returns raw time without division
-        (matches Laravel: $totalProcesses === 0 ? round($timeToClear / 1000)).
+        (matches the upstream zero-process special case).
 
-        Mirrors WaitTimeCalculator::calculateTimeToClear() in Laravel Horizon.
+        Matches the upstream time-to-clear calculation.
         """
         # Handle split queues (comma-separated)
         if "," in queue:
@@ -123,7 +123,7 @@ class WaitTimeCalculator:
 
         Formula: queue_size * avg_runtime_ms
 
-        Mirrors WaitTimeCalculator::timeToClearFor() in Laravel Horizon.
+        Matches the upstream per-queue time-to-clear calculation.
         """
         size = await self._get_queue_length(queue)
         runtime = await self.metrics_repo.runtime_for_queue(queue)

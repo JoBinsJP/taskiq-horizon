@@ -32,7 +32,7 @@ class HorizonConfig:
     # Dashboard display name suffix (shown in title/header).
     name: str = ""
 
-    # Dashboard route path, equivalent to Laravel Horizon's "path" config.
+    # Dashboard route path (matches the upstream "path" config key).
     # Examples: "horizon", "ops/horizon"
     path: str = "horizon"
 
@@ -59,6 +59,6 @@ class HorizonConfig:
     # Memory limit for supervisors in megabytes.
     memory_limit: int = 512
 
-    # Environment-specific supervisor mappings (like Laravel Horizon).
+    # Environment-specific supervisor mappings (same shape as upstream).
     # e.g., environments={"production": {"supervisor-1": SupervisorOptions(...)}}
     environments: dict = field(default_factory=dict)

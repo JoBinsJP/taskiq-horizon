@@ -1,5 +1,5 @@
 """
-MasterSupervisor — mirrors Laravel Horizon's MasterSupervisor.php.
+MasterSupervisor — ports the upstream master supervisor.
 
 Top-level orchestrator that:
 1. Manages one or more Supervisor instances
@@ -38,7 +38,7 @@ class MasterSupervisor:
     """
     Top-level supervisor process — one per machine.
 
-    Mirrors the loop structure from MasterSupervisor.php:
+    Follows the upstream master loop structure:
     1. Heartbeat to Redis
     2. Process pending signals
     3. Fire MasterSupervisorLooped event
@@ -81,7 +81,7 @@ class MasterSupervisor:
             opts_to_use = []
             env_config = config.environments.get(self.environment, {})
             for name, opts in env_config.items():
-                # Laravel prefixes the supervisor name with the Master's name
+                # Upstream prefixes the supervisor name with the Master's name
                 # to prevent collision when multiple masters are running.
                 opts.name = f"{self.name}:{name}"
                 opts_to_use.append(opts)
@@ -121,7 +121,7 @@ class MasterSupervisor:
 
     @classmethod
     def basename(cls) -> str:
-        """Base prefix used to identify masters (like Laravel's basename)."""
+        """Base prefix used to identify masters (matches the upstream basename convention)."""
         return "TaskIQ-Master-"
 
     async def monitor(self) -> None:
@@ -167,7 +167,7 @@ class MasterSupervisor:
 
     def _listen_for_signals(self) -> None:
         """
-        Register signal handlers — mirrors ListensForSignals trait.
+        Register signal handlers — matches the upstream signal-listening behavior.
 
         Signals are buffered in _pending_signals and processed in the
         next loop iteration (not immediately) to avoid race conditions.
@@ -191,7 +191,7 @@ class MasterSupervisor:
             pass  # Windows or restricted environments
 
     def _process_pending_signals(self) -> None:
-        """Process buffered signals — deferred like Laravel's processPendingSignals."""
+        """Process buffered signals — deferred, matching the upstream signal handling."""
         while self._pending_signals:
             sig = self._pending_signals.pop(0)
             if sig == "terminate":

@@ -362,7 +362,7 @@ async def test_monitoring_tag_pagination_returns_all_jobs(redis, config):
 
 @pytest.mark.asyncio
 async def test_stats_wait_is_keyed_by_connection_and_queue(redis, config):
-    """dashboard.vue splits the wait key on ':' expecting Laravel's connection:queue format."""
+    """dashboard.vue splits the wait key on ':' expecting a connection:queue pair."""
 
     class WaitTimeWithData:
         async def calculate(self):

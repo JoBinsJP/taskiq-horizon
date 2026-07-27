@@ -1,5 +1,5 @@
 """
-Redis Workload Repository — mirrors Laravel Horizon's RedisWorkloadRepository.php.
+Redis Workload Repository — ports the upstream Redis workload repository.
 
 Computes the current workload of each queue by combining:
   - Queue depth (Redis LLEN)
@@ -21,10 +21,10 @@ from taskiq_horizon.wait_time import WaitTimeCalculator
 
 class RedisWorkloadRepository(WorkloadRepository):
     """
-    Mirrors Laravel\\Horizon\\Repositories\\RedisWorkloadRepository.
+    Ports the upstream Redis workload repository.
 
-    Injected dependencies match Laravel's constructor:
-      - redis (QueueFactory equivalent — used for LLEN queue depth)
+    Injected dependencies match the upstream constructor:
+      - redis (used for LLEN queue depth)
       - wait_time (WaitTimeCalculator)
       - supervisor_repo (SupervisorRepository — for process counts)
     """
@@ -43,7 +43,7 @@ class RedisWorkloadRepository(WorkloadRepository):
         """
         Get the current workload of each queue.
 
-        Returns a list of dicts matching Laravel's shape::
+        Returns a list of dicts matching the upstream shape::
 
             {
                 "name": str,
@@ -53,7 +53,7 @@ class RedisWorkloadRepository(WorkloadRepository):
                 "split_queues": None | list[{"name": str, "wait": float, "length": int}]
             }
 
-        Mirrors RedisWorkloadRepository::get() in Laravel Horizon.
+        Matches the upstream workload query.
         """
         processes = await self._processes()
         wait_times = await self.wait_time.calculate()
@@ -102,11 +102,8 @@ class RedisWorkloadRepository(WorkloadRepository):
         """
         Aggregate process counts across all supervisors, grouped by queue.
 
-        Mirrors RedisWorkloadRepository::processes() in Laravel Horizon::
-
-            collect($this->supervisors->all())
-                ->pluck('processes')
-                ->reduce(fn ($final, $queues) => ...)
+        Matches the upstream aggregation: collect every supervisor's
+        per-queue process counts and sum them by queue name.
         """
         supervisors = await self.supervisor_repo.all_supervisors()
         totals: dict[str, int] = {}

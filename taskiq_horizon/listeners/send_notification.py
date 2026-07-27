@@ -1,5 +1,5 @@
 r"""
-SendNotification — mirrors Laravel\Horizon\Listeners\SendNotification.
+SendNotification — ports the upstream send-notification listener.
 
 Handles LongWaitDetected events. Logger-only implementation per user decision.
 r"""

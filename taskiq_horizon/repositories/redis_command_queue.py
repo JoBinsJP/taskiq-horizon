@@ -1,5 +1,5 @@
 r"""
-RedisCommandQueue — mirrors Laravel\Horizon\RedisHorizonCommandQueue.
+RedisCommandQueue — ports the upstream Redis command queue.
 
 Uses a Redis list per supervisor to store JSON-encoded commands.
 The supervisor consumes commands atomically via LRANGE + LTRIM pipeline.
@@ -43,7 +43,7 @@ class RedisCommandQueue(CommandQueue):
         Atomically consume all pending commands.
 
         Uses LRANGE + LTRIM in a pipeline to read and clear in one round-trip.
-        This is the same pattern used by Laravel's RedisHorizonCommandQueue.
+        This is the same read-and-clear approach used upstream.
         """
         key = self._key(name)
         length = await self.redis.llen(key)

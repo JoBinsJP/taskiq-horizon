@@ -1,5 +1,5 @@
 """
-Workload Repository Contract — mirrors Laravel Horizon's WorkloadRepository.php.
+Workload Repository Contract — ports the upstream workload repository interface.
 """
 
 from __future__ import annotations

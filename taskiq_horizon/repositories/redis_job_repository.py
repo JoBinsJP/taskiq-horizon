@@ -82,7 +82,7 @@ class RedisJobRepository(JobRepository):
 
     async def _get_jobs_by_type(self, type_name: str, after_index: int | None) -> list[dict[str, Any]]:
         # Scores are negated timestamps, so an ascending ZRANGE yields
-        # newest-first — mirroring Laravel Horizon's RedisJobRepository::getJobsByType().
+        # newest-first — matching the upstream jobs-by-type query.
         start = after_index + 1 if after_index is not None and after_index >= 0 else 0
         end = start + 49  # Fetch 50 items
         job_ids = await self.redis.zrange(self._key(type_name), start, end)
@@ -130,7 +130,7 @@ class RedisJobRepository(JobRepository):
                     val = raw_job[key_idx]
                     job_dict[key] = val.decode("utf-8") if isinstance(val, bytes) else val
 
-                # Laravel Horizon expects payload and retried_by to be parsed JSON
+                # The dashboard expects payload and retried_by to be parsed JSON
                 import json
 
                 if "payload" in job_dict and isinstance(job_dict["payload"], str):
@@ -307,10 +307,10 @@ class RedisJobRepository(JobRepository):
     def _build_context(self, exception: Exception, connection: str, queue: str, payload: TaskPayload) -> str:
         """Build the exception context stored alongside a failed job.
 
-        Laravel Horizon renders whatever the exception's ``context()`` returns;
+        Upstream renders whatever the exception's ``context()`` returns;
         taskiq exceptions rarely carry one, so a diagnostic context is always
         assembled automatically (and merged with the exception's own ``context``
-        attribute/method when present, mirroring Laravel's convention).
+        attribute/method when present, matching the upstream convention).
         """
         context: dict[str, Any] = {
             "exception_type": type(exception).__name__,

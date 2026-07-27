@@ -1,6 +1,6 @@
 class LuaScripts:
     """
-    Port of Laravel Horizon's LuaScripts.php for atomic Redis operations.
+    Port of the upstream Lua scripts for atomic Redis operations.
     """
 
     @staticmethod

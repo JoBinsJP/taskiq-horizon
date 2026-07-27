@@ -1,7 +1,7 @@
 """
 EventMap — declarative event-to-listener mapping.
 
-Mirrors Laravel Horizon's EventMap trait. Call `register_default_listeners()`
+Ports the upstream event map. Call `register_default_listeners()`
 to wire all standard Horizon listeners into an EventDispatcher instance.
 
 This is called during the supervisor boot phase, NOT by the host app.
@@ -41,7 +41,7 @@ def register_default_listeners(
     """
     Register all default Horizon listeners.
 
-    Mirrors the $events array in Laravel's EventMap trait:
+    Matches the upstream event-to-listener map:
 
         MasterSupervisorLooped => [TrimRecentJobs, TrimFailedJobs,
                                    TrimMonitoredJobs, ExpireSupervisors,
