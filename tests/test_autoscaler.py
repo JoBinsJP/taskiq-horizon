@@ -133,6 +133,32 @@ async def test_zero_backlog_scales_idle_queues_to_minimum_when_capacity_allows(a
 
 
 @pytest.mark.asyncio
+async def test_non_balancing_supervisor_scales_single_pool_by_queue_depth(autoscaler_factory):
+    """balance='false' supervisors scale their single pool between min and max by backlog size."""
+    autoscaler = autoscaler_factory({"default": 100.0}, {"default": 5})
+    supervisor = MockSupervisor("default", max_processes=10, min_processes=1, balance="false")
+
+    await autoscaler.scale(supervisor)
+
+    assert supervisor.process_pools["default"].active_process_count == 5
+
+
+@pytest.mark.asyncio
+async def test_non_balancing_supervisor_respects_max_processes_cap(autoscaler_factory):
+    """balance='false' never exceeds max_processes and never drops below min_processes."""
+    autoscaler = autoscaler_factory({"default": 100.0}, {"default": 500})
+    supervisor = MockSupervisor("default", max_processes=4, min_processes=2, balance="false")
+
+    await autoscaler.scale(supervisor)
+    assert supervisor.process_pools["default"].active_process_count == 4
+
+    # Backlog drains → scale back down to min_processes
+    autoscaler_empty = autoscaler_factory({"default": 100.0}, {"default": 0})
+    await autoscaler_empty.scale(supervisor)
+    assert supervisor.process_pools["default"].active_process_count == 2
+
+
+@pytest.mark.asyncio
 async def test_global_max_process_cap_is_respected_across_many_queues(autoscaler_factory):
     autoscaler = autoscaler_factory(
         {"default": 100.0, "high": 100.0, "low": 100.0},

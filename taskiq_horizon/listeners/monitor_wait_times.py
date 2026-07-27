@@ -7,7 +7,6 @@ r"""
 
 import logging
 import time
-from typing import Optional
 
 from taskiq_horizon.config import HorizonConfig
 from taskiq_horizon.event_dispatcher import EventDispatcher
@@ -28,7 +27,7 @@ class MonitorWaitTimesListener:
         self.wait_time = wait_time_calculator
         self.dispatcher = dispatcher
         self.config = config
-        self.last_monitored: Optional[float] = None
+        self.last_monitored: float | None = None
         self.frequency = 60  # seconds
 
     async def handle(self, event: SupervisorLooped) -> None:

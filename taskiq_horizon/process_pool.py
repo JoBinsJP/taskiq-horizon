@@ -8,7 +8,6 @@ scale-down without killing active jobs.
 
 import logging
 import time
-from typing import Optional
 
 from taskiq_horizon.worker_process import WorkerProcess
 
@@ -30,7 +29,7 @@ class ProcessPool:
         self,
         broker_path: str,
         queue: str = "default",
-        worker_args: Optional[list[str]] = None,
+        worker_args: list[str] | None = None,
         queue_env_var: str = "QUEUE_NAME",
     ) -> None:
         self.broker_path = broker_path
@@ -39,6 +38,7 @@ class ProcessPool:
         self.queue_env_var = queue_env_var
         self.workers: list[WorkerProcess] = []
         self.terminating: list[tuple[WorkerProcess, float]] = []  # (worker, terminated_at)
+        self.paused = False  # True while workers are suspended via SIGSTOP
 
     @property
     def total_process_count(self) -> int:
@@ -64,6 +64,9 @@ class ProcessPool:
         for _ in range(count):
             worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
             worker.start()
+            if self.paused:
+                # Workers spawned while the pool is paused must not consume jobs.
+                worker.pause()
             self.workers.append(worker)
         logger.info(f"Pool [{self.queue}] scaled UP by {count} → {len(self.workers)} active")
 
@@ -114,6 +117,26 @@ class ProcessPool:
 
         self.terminating = still_terminating
 
+    def pause(self) -> None:
+        """
+        Pause the pool — suspend every active worker with SIGSTOP.
+
+        Terminating workers are left alone so they can finish draining.
+        Mirrors Laravel Horizon's real pause semantics: paused workers stop
+        consuming jobs entirely.
+        """
+        self.paused = True
+        for worker in self.workers:
+            worker.pause()
+        logger.info(f"Pool [{self.queue}] paused ({len(self.workers)} workers stopped)")
+
+    def resume(self) -> None:
+        """Resume the pool — wake every active worker with SIGCONT."""
+        self.paused = False
+        for worker in self.workers:
+            worker.resume()
+        logger.info(f"Pool [{self.queue}] resumed ({len(self.workers)} workers continued)")
+
     def monitor(self, memory_limit_mb: int = 128) -> None:
         """
         Check worker health and restart dead workers.
@@ -127,6 +150,8 @@ class ProcessPool:
                 logger.warning(f"Worker PID={worker.pid} died unexpectedly. Respawning...")
                 new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
                 new_worker.start()
+                if self.paused:
+                    new_worker.pause()
                 alive.append(new_worker)
                 continue
 
@@ -141,6 +166,8 @@ class ProcessPool:
                 # Respawn immediately
                 new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
                 new_worker.start()
+                if self.paused:
+                    new_worker.pause()
                 alive.append(new_worker)
                 continue
 

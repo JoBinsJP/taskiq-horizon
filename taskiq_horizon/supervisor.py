@@ -37,7 +37,6 @@ class SupervisorOptions:
     """
 
     name: str = ""
-    connection: str = "redis"
     queue: str = "default"
     balance: str = "auto"
     auto_scale_by_num_jobs: bool = False
@@ -46,11 +45,6 @@ class SupervisorOptions:
     min_processes: int = 1
     memory: int = 128  # MB
     timeout: int = 60
-    sleep: int = 3
-    max_tries: int = 0
-    max_time: int = 0
-    max_jobs: int = 0
-    nice: int = 0
     balance_cooldown: int = 3
     balance_max_shift: int = 1
     broker_path: str = ""
@@ -140,10 +134,11 @@ class Supervisor:
         # Flush stale commands from a previous run
         await self.command_queue.flush(self.name)
 
-        # Initial scaling mirrors Horizon: balancing supervisors immediately
-        # rebalance their per-queue pools, while non-balancing supervisors
-        # start with a single pool scaled to the configured minimum.
-        if self.autoscaler and self.options.balancing:
+        # Initial scaling mirrors Horizon: supervisors with an autoscaler
+        # immediately scale their pools (per-queue when balancing, a single
+        # pool sized by queue pressure otherwise), while supervisors without
+        # one start scaled to the configured minimum.
+        if self.autoscaler:
             await self._autoscale(force=True)
         else:
             self.scale(self.options.min_processes)
@@ -152,8 +147,10 @@ class Supervisor:
             # 1. Consume pending commands
             await self._process_commands()
 
-            # 2. Run autoscaler (if enabled and not paused)
-            if self.working and self.autoscaler and self.options.balancing:
+            # 2. Run autoscaler (if enabled and not paused). Non-balancing
+            #    supervisors scale their single pool between min_processes and
+            #    max_processes based on queue depth.
+            if self.working and self.autoscaler:
                 await self._autoscale()
 
             # 3. Monitor worker health + memory
@@ -224,13 +221,20 @@ class Supervisor:
     # ── Command handlers ─────────────────────────────────────────────────
 
     def pause(self) -> None:
-        """Pause the supervisor — workers finish current jobs but don't pick up new ones."""
+        """
+        Pause the supervisor — autoscaling stops and every worker process
+        is suspended (SIGSTOP) so no more jobs are consumed until continue.
+        """
         self.working = False
+        for pool in self.process_pools.values():
+            pool.pause()
         logger.info(f"Supervisor '{self.name}' paused.")
 
     def continue_working(self) -> None:
-        """Resume the supervisor — workers start picking up new jobs."""
+        """Resume the supervisor — workers are woken (SIGCONT) and start picking up jobs."""
         self.working = True
+        for pool in self.process_pools.values():
+            pool.resume()
         logger.info(f"Supervisor '{self.name}' resumed.")
 
     def restart(self) -> None:
@@ -238,6 +242,7 @@ class Supervisor:
         logger.info(f"Supervisor '{self.name}' restarting workers...")
         self.working = True
         for pool in self.process_pools.values():
+            pool.resume()
             pool.restart()
 
     def terminate(self, status: int = 0) -> None:

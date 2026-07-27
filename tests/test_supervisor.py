@@ -1,5 +1,6 @@
 """Tests for Supervisor — command processing and state management."""
 
+import asyncio
 import time
 from unittest.mock import AsyncMock
 
@@ -21,6 +22,9 @@ class FakeProcessPool:
         self.monitor_calls = 0
         self.restart_calls = 0
         self.kill_all_calls = 0
+        self.paused = False
+        self.pause_calls = 0
+        self.resume_calls = 0
 
     @property
     def active_process_count(self) -> int:
@@ -46,6 +50,14 @@ class FakeProcessPool:
     def restart(self) -> None:
         self.restart_calls += 1
 
+    def pause(self) -> None:
+        self.paused = True
+        self.pause_calls += 1
+
+    def resume(self) -> None:
+        self.paused = False
+        self.resume_calls += 1
+
     def kill_all(self) -> None:
         self.kill_all_calls += 1
         self.workers = 0
@@ -62,7 +74,6 @@ class TestSupervisorOptions:
 
     def test_defaults(self):
         opts = SupervisorOptions(name="test")
-        assert opts.connection == "redis"
         assert opts.queue == "default"
         assert opts.balance == "auto"
         assert opts.max_processes == 10
@@ -124,14 +135,17 @@ class TestSupervisor:
         assert sup.running is True
 
     def test_pause(self):
-        """pause() sets working=False, status changes to 'paused'."""
+        """pause() sets working=False, status changes to 'paused', and pools are paused."""
         sup = self._make_supervisor()
         sup.pause()
         assert sup.working is False
         assert sup.status == "paused"
+        for pool in sup.process_pools.values():
+            assert pool.paused is True
+            assert pool.pause_calls == 1
 
     def test_continue_working(self):
-        """continue_working() sets working=True."""
+        """continue_working() sets working=True and resumes the pools."""
         sup = self._make_supervisor()
         sup.pause()
         assert sup.status == "paused"
@@ -139,6 +153,9 @@ class TestSupervisor:
         sup.continue_working()
         assert sup.working is True
         assert sup.status == "running"
+        for pool in sup.process_pools.values():
+            assert pool.paused is False
+            assert pool.resume_calls == 1
 
     def test_terminate(self):
         """terminate() sets both running and working to False."""
@@ -200,6 +217,21 @@ class TestSupervisor:
         await sup._process_commands()
 
         assert sup.working is False  # pause was executed
+
+    @pytest.mark.asyncio
+    async def test_monitor_autoscales_non_balancing_supervisors(self):
+        """balance='false' supervisors still run the autoscaler (single-pool scaling)."""
+        autoscaler = AsyncMock()
+
+        async def terminate_on_scale(supervisor):
+            supervisor.terminate(0)
+
+        autoscaler.scale.side_effect = terminate_on_scale
+        sup = self._make_supervisor(balance="false", autoscaler=autoscaler)
+
+        await asyncio.wait_for(sup.monitor(), timeout=5)
+
+        autoscaler.scale.assert_awaited_with(sup)
 
     @pytest.mark.asyncio
     async def test_autoscale_honors_immediate_balance_requests(self):

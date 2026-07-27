@@ -10,17 +10,17 @@ class HorizonSnapshotCommand(Command):
     def handle(self):
         import asyncio
 
-        try:
-            from alata.application import boot
-            from alata.container import container
-        except ImportError:  # legacy consumers with the embedded app.core framework
-            from app.core.application import boot
-            from app.core.container import container
+        from alata.application import boot
+        from alata.container import container
 
         self.line("<info>Taking Horizon metrics snapshot...</info>")
         boot()
 
         metrics_repo = container.make("horizon.metrics")
+        # Building the wait-time calculator wires it into the metrics repository
+        # (see service_provider._make_wait_time), so queue snapshots record real
+        # wait times instead of always 0.0.
+        container.make("horizon.wait_time")
 
         async def run_snapshot():
             await metrics_repo.snapshot()

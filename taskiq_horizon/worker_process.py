@@ -8,9 +8,9 @@ from pool management.
 
 import logging
 import os
+import signal
 import subprocess
 import sys
-from typing import Optional
 
 logger = logging.getLogger("horizon.process")
 
@@ -29,15 +29,16 @@ class WorkerProcess:
         self,
         broker_path: str,
         queue: str = "default",
-        worker_args: Optional[list[str]] = None,
+        worker_args: list[str] | None = None,
         queue_env_var: str = "QUEUE_NAME",
     ) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
         self.queue_env_var = queue_env_var
-        self.process: Optional[subprocess.Popen] = None
-        self.pid: Optional[int] = None
+        self.process: subprocess.Popen | None = None
+        self.pid: int | None = None
+        self.stopped = False  # True while suspended via SIGSTOP (paused)
 
     def _build_env(self) -> dict[str, str]:
         """
@@ -73,12 +74,40 @@ class WorkerProcess:
         self.pid = self.process.pid
         logger.info(f"Worker process started: PID={self.pid} queue={self.queue}")
 
+    def pause(self) -> None:
+        """
+        Suspend the worker with SIGSTOP so it stops consuming jobs.
+
+        The process is frozen by the kernel (it cannot ignore SIGSTOP) and
+        resumes exactly where it left off when resume() sends SIGCONT.
+        """
+        if self.is_alive() and self.process:
+            try:
+                self.process.send_signal(signal.SIGSTOP)
+                self.stopped = True
+                logger.debug(f"SIGSTOP sent to worker PID={self.pid}")
+            except OSError as e:
+                logger.warning(f"Failed to pause worker PID={self.pid}: {e}")
+
+    def resume(self) -> None:
+        """Resume a paused worker with SIGCONT."""
+        if self.is_alive() and self.process:
+            try:
+                self.process.send_signal(signal.SIGCONT)
+                logger.debug(f"SIGCONT sent to worker PID={self.pid}")
+            except OSError as e:
+                logger.warning(f"Failed to resume worker PID={self.pid}: {e}")
+        self.stopped = False
+
     def terminate(self) -> None:
         """
         Send SIGTERM to the worker. Non-blocking — the worker will finish
         its current job before exiting. Use kill() if it doesn't stop.
         """
         if self.is_alive() and self.process:
+            # A SIGSTOPped process cannot handle SIGTERM — wake it first.
+            if self.stopped:
+                self.resume()
             try:
                 self.process.terminate()
                 logger.debug(f"SIGTERM sent to worker PID={self.pid}")

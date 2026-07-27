@@ -173,15 +173,65 @@ class TestRedisJobRepository:
     def repo(self, redis, config):
         return RedisJobRepository(redis, config)
 
-    def _payload(self, task_id: str, queue_name: str = "default") -> TaskPayload:
+    def _payload(self, task_id: str, queue_name: str = "default", labels: dict | None = None) -> TaskPayload:
         message = TaskiqMessage(
             task_id=task_id,
             task_name="memory:write",
-            labels={"queue_name": queue_name},
+            labels={"queue_name": queue_name, **(labels or {})},
             args=[],
             kwargs={},
         )
         return TaskPayload(message).prepare(SimpleNamespace(silenced=[], silenced_tags=[]))
+
+    @pytest.mark.asyncio
+    async def test_failed_stores_full_stacktrace(self, repo):
+        """failed() stores the formatted traceback so the dashboard stacktrace panel works."""
+        payload = self._payload("failing-job-001")
+        await repo.pushed("redis", "default", payload)
+
+        def _raise():
+            raise RuntimeError("boom with trace")
+
+        try:
+            _raise()
+        except RuntimeError as exc:
+            caught = exc
+
+        await repo.failed(caught, "redis", "default", payload)
+
+        job = await repo.find_failed("failing-job-001")
+        assert job is not None
+        assert "Traceback (most recent call last):" in job["exception"]
+        assert "_raise" in job["exception"]
+        assert "RuntimeError: boom with trace" in job["exception"]
+
+    @pytest.mark.asyncio
+    async def test_failed_retry_marks_parent_retry_entry_failed(self, repo):
+        """A failed retry must flip its entry on the parent job to 'failed', not stay 'pending'."""
+        parent = self._payload("parent-job-001")
+        await repo.pushed("redis", "default", parent)
+        await repo.store_retry_reference("parent-job-001", "retry-job-001")
+
+        retry_payload = self._payload("retry-job-001", labels={"retry_of": "parent-job-001"})
+        await repo.failed(RuntimeError("retry failed"), "redis", "default", retry_payload)
+
+        parent_job = (await repo.get_jobs(["parent-job-001"]))[0]
+        assert parent_job["retried_by"] == [
+            {"id": "retry-job-001", "status": "failed", "retried_at": pytest.approx(int(time.time()), abs=5)}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_completed_retry_marks_parent_retry_entry_completed(self, repo):
+        """A successful retry flips its entry on the parent job to 'completed'."""
+        parent = self._payload("parent-job-002")
+        await repo.pushed("redis", "default", parent)
+        await repo.store_retry_reference("parent-job-002", "retry-job-002")
+
+        retry_payload = self._payload("retry-job-002", labels={"retry_of": "parent-job-002"})
+        await repo.completed(retry_payload)
+
+        parent_job = (await repo.get_jobs(["parent-job-002"]))[0]
+        assert parent_job["retried_by"][0]["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_purge_removes_pending_and_reserved_jobs_for_queue(self, repo):

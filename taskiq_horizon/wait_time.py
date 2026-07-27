@@ -9,8 +9,8 @@ Calculates the estimated time to clear each queue based on:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
-from typing import Any, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from taskiq_horizon.contracts.metrics_repository import MetricsRepository
 

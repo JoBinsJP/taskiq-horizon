@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 
 class MetricsRepository(ABC):
@@ -44,11 +44,11 @@ class MetricsRepository(ABC):
         pass
 
     @abstractmethod
-    async def increment_job(self, job: str, runtime: Optional[float]) -> None:
+    async def increment_job(self, job: str, runtime: float | None) -> None:
         pass
 
     @abstractmethod
-    async def increment_queue(self, queue: str, runtime: Optional[float]) -> None:
+    async def increment_queue(self, queue: str, runtime: float | None) -> None:
         pass
 
     @abstractmethod

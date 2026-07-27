@@ -123,6 +123,45 @@ class TestTaskPayload:
         assert payload.is_retry() is True
         assert payload.retry_of() == "parent-job-id"
 
+    def test_tags_comma_separated_string_is_canonical(self, config):
+        """tags='a,b' (the canonical format, since taskiq stringifies labels) is split."""
+        msg = make_message(labels={"tags": "tenant:42, billing"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.tags() == ["tenant:42", "billing"]
+
+    def test_tags_stringified_list_is_parsed(self, config):
+        """taskiq stringifies list labels — "['a', 'b']" must parse back to elements."""
+        msg = make_message(labels={"tags": "['tenant:42', 'billing']"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.tags() == ["tenant:42", "billing"]
+
+    def test_tags_real_list_still_works(self, config):
+        msg = make_message(labels={"tags": ["tenant:42", "billing"]})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.tags() == ["tenant:42", "billing"]
+
+    def test_tags_single_plain_string(self, config):
+        msg = make_message(labels={"tags": "tenant:42"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.tags() == ["tenant:42"]
+
+    def test_tags_malformed_bracket_string_falls_back_to_comma_split(self, config):
+        """An unparseable bracketed string falls back to comma splitting, not a crash."""
+        msg = make_message(labels={"tags": "[not, valid python]"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.tags() == ["[not", "valid python]"]
+
+    def test_tags_absent_yields_empty_list(self, config):
+        msg = make_message(labels={})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.tags() == []
+
 
 # ── HorizonMiddleware queue_name label tests ──────────────────────────────────
 
@@ -276,6 +315,44 @@ class TestMiddlewareLifecycle:
 
         assert await tag_repo.count("tenant:42") == 1
         assert await tag_repo.count("failed:tenant:42") == 1
+
+    @pytest.mark.asyncio
+    async def test_stringified_list_tags_still_match_monitoring(self, middleware, job_repo, tag_repo):
+        """Tags mangled into "['...']" by taskiq's label stringification still match monitors."""
+        await tag_repo.monitor("tenant:42")
+        msg = make_message(
+            task_id="stringified-tags-001",
+            labels={"queue_name": "default", "tags": "['tenant:42']"},
+        )
+
+        await middleware.pre_send(msg)
+
+        assert await tag_repo.count("tenant:42") == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_job_records_stacktrace(self, middleware, job_repo):
+        """The failure path stores the full traceback for the dashboard stacktrace panel."""
+        msg = make_message(task_id="stacktrace-001", labels={"queue_name": "default"})
+
+        await middleware.pre_send(msg)
+        await middleware.pre_execute(msg)
+
+        def _explode():
+            raise ValueError("kaboom")
+
+        try:
+            _explode()
+        except ValueError as exc:
+            caught = exc
+
+        result = MagicMock()
+        result.is_err = True
+        await middleware.on_error(msg, result, caught)
+
+        failed_job = await job_repo.find_failed("stacktrace-001")
+        assert "Traceback (most recent call last):" in failed_job["exception"]
+        assert "_explode" in failed_job["exception"]
+        assert "ValueError: kaboom" in failed_job["exception"]
 
     @pytest.mark.asyncio
     async def test_pushed_timestamp_survives_failure_transition(self, middleware, job_repo):

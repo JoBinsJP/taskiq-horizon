@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "taskiq-horizon"
-version = "0.1.0"
+version = "0.1.1"
 description = "Laravel Horizon port for Python TaskIQ"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Sajan Lamsal", email = "sajan@jobins.jp" },
@@ -20,7 +20,11 @@ dependencies = [
     "uvicorn>=0.20",
     "pydantic>=2.0",
     "psutil>=5.9.0",
+    "cleo>=2.1.0,<3.0.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/JoBinsJP/taskiq-horizon"
 
 [project.optional-dependencies]
 dev = [
@@ -38,7 +42,7 @@ include = [
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]
@@ -55,7 +59,7 @@ select = [
 ignore = [
     "E501",   # line length handled by formatter
     "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
-    "UP007",  # use X | Y for union types — keep Optional for py3.9 compat
+    "UP007",  # use X | Y for union types — allow Optional/Union spellings
 ]
 
 [tool.ruff.lint.isort]

@@ -1,7 +1,7 @@
 import json
 import math
 import time
-from typing import Any, Optional
+from typing import Any
 
 from redis.asyncio import Redis
 
@@ -110,13 +110,13 @@ class RedisMetricsRepository(MetricsRepository):
 
         return max_queue
 
-    async def increment_job(self, job: str, runtime: Optional[float]) -> None:
+    async def increment_job(self, job: str, runtime: float | None) -> None:
         await self._increment_metric("job", job, runtime)
 
-    async def increment_queue(self, queue: str, runtime: Optional[float]) -> None:
+    async def increment_queue(self, queue: str, runtime: float | None) -> None:
         await self._increment_metric("queue", queue, runtime)
 
-    async def _increment_metric(self, kind: str, name: str, runtime: Optional[float]) -> None:
+    async def _increment_metric(self, kind: str, name: str, runtime: float | None) -> None:
         from taskiq_horizon.lua_scripts import LuaScripts
 
         runtime = 0.0 if runtime is None else runtime

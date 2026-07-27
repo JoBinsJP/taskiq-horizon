@@ -1,7 +1,8 @@
 import contextlib
 import json
 import time
-from typing import Any, Optional
+import traceback
+from typing import Any
 
 from redis.asyncio import Redis
 
@@ -46,19 +47,19 @@ class RedisJobRepository(JobRepository):
     async def total_failed(self) -> int:
         return await self.redis.zcard(self._key("failed_jobs"))
 
-    async def get_recent(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_recent(self, after_index: int | None = None) -> list[dict[str, Any]]:
         return await self._get_jobs_by_type("recent_jobs", after_index)
 
-    async def get_failed(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_failed(self, after_index: int | None = None) -> list[dict[str, Any]]:
         return await self._get_jobs_by_type("failed_jobs", after_index)
 
-    async def get_pending(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_pending(self, after_index: int | None = None) -> list[dict[str, Any]]:
         return await self._get_jobs_by_type("pending_jobs", after_index)
 
-    async def get_completed(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_completed(self, after_index: int | None = None) -> list[dict[str, Any]]:
         return await self._get_jobs_by_type("completed_jobs", after_index)
 
-    async def get_silenced(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_silenced(self, after_index: int | None = None) -> list[dict[str, Any]]:
         return await self._get_jobs_by_type("silenced_jobs", after_index)
 
     async def count_recent(self) -> int:
@@ -79,14 +80,14 @@ class RedisJobRepository(JobRepository):
     async def count_recently_failed(self) -> int:
         return await self._count_jobs_by_type("recent_failed_jobs")
 
-    async def _get_jobs_by_type(self, type_name: str, after_index: Optional[int]) -> list[dict[str, Any]]:
+    async def _get_jobs_by_type(self, type_name: str, after_index: int | None) -> list[dict[str, Any]]:
         # Using exact ZREVRANGE pagination matching Laravel Horizon's API.
         start = after_index + 1 if after_index is not None and after_index >= 0 else 0
         end = start + 49  # Fetch 50 items
         job_ids = await self.redis.zrevrange(self._key(type_name), start, end)
         return await self.get_jobs([j.decode("utf-8") if isinstance(j, bytes) else str(j) for j in job_ids], start)
 
-    async def get_jobs_by_tag(self, tag: str, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_jobs_by_tag(self, tag: str, after_index: int | None = None) -> list[dict[str, Any]]:
         # Tag fetching logic parity
         start = after_index + 1 if after_index is not None and after_index >= 0 else 0
         end = start + 49
@@ -283,13 +284,23 @@ class RedisJobRepository(JobRepository):
         score = (time.time() - (self.config.trim.monitored * 60)) * -1
         await self.redis.zremrangebyscore(self._key("monitored_jobs"), score, "+inf")
 
-    async def find_failed(self, task_id: str) -> Optional[dict[str, Any]]:
+    async def find_failed(self, task_id: str) -> dict[str, Any] | None:
         jobs = await self.get_jobs([task_id])
         if jobs and jobs[0].get("status") == "failed":
             return jobs[0]
         return None
 
+    @staticmethod
+    def _format_exception(exception: Any) -> str:
+        """Render the exception with its full traceback for the dashboard's stacktrace panel."""
+        if isinstance(exception, BaseException):
+            return "".join(traceback.format_exception(type(exception), exception, exception.__traceback__))
+        return str(exception)
+
     async def failed(self, exception: Exception, connection: str, queue: str, payload: TaskPayload) -> None:
+        if payload.is_retry():
+            await self._update_retry_information_on_parent(payload, failed=True)
+
         async with self.redis.pipeline() as pipe:
             self._store_job_reference(pipe, "failed_jobs", payload.id())
             self._store_job_reference(pipe, "recent_failed_jobs", payload.id())
@@ -307,7 +318,7 @@ class RedisJobRepository(JobRepository):
                     "name": payload.display_name(),
                     "status": "failed",
                     "payload": payload.value,
-                    "exception": str(exception),
+                    "exception": self._format_exception(exception),
                     "failed_at": str(time.time()),
                 },
             )
@@ -381,7 +392,7 @@ class RedisJobRepository(JobRepository):
                 statuses = await pipe.execute()
 
                 pipe = self.redis.pipeline()
-                for job_id, job_data in zip(job_ids, statuses):
+                for job_id, job_data in zip(job_ids, statuses, strict=False):
                     status, job_queue = job_data
                     status = status.decode("utf-8") if isinstance(status, bytes) else status
                     job_queue = job_queue.decode("utf-8") if isinstance(job_queue, bytes) else job_queue

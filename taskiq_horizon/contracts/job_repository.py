@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from taskiq_horizon.payload import TaskPayload
 
@@ -18,23 +18,23 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_recent(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_recent(self, after_index: int | None = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_failed(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_failed(self, after_index: int | None = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_pending(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_pending(self, after_index: int | None = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_completed(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_completed(self, after_index: int | None = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
-    async def get_silenced(self, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_silenced(self, after_index: int | None = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -66,7 +66,7 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def get_jobs_by_tag(self, tag: str, after_index: Optional[int] = None) -> list[dict[str, Any]]:
+    async def get_jobs_by_tag(self, tag: str, after_index: int | None = None) -> list[dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -106,7 +106,7 @@ class JobRepository(ABC):
         pass
 
     @abstractmethod
-    async def find_failed(self, task_id: str) -> Optional[dict[str, Any]]:
+    async def find_failed(self, task_id: str) -> dict[str, Any] | None:
         pass
 
     @abstractmethod

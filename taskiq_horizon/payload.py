@@ -1,9 +1,10 @@
+import ast
 import base64
 import json
 import pickle
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from taskiq.message import TaskiqMessage
 
@@ -84,13 +85,38 @@ class TaskPayload:
         return base64.b64encode(pickle.dumps(state)).decode("ascii")
 
     def _determine_tags(self) -> list[str]:
-        # User defined tags in task labels
-        tags = self.message.labels.get("tags", [])
-        if not isinstance(tags, list):
-            tags = [tags]
+        """
+        Extract user-defined tags from the task labels.
 
-        # By default, append the task name as a tag, maybe?
-        return tags
+        The canonical format is a comma-separated string, since taskiq
+        stringifies label values on the wire:
+
+            @broker.task(tags="tenant:42,billing")
+
+        Real lists are also accepted (``tags=["a", "b"]``), and stringified
+        lists produced by taskiq's label coercion (``"['a', 'b']"``) are
+        defensively parsed back into their elements.
+        """
+        tags = self.message.labels.get("tags", [])
+
+        if isinstance(tags, str):
+            stripped = tags.strip()
+            # Defensively parse a stringified list ("['a', 'b']") — taskiq
+            # coerces list labels to their repr when serializing messages.
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    literal = ast.literal_eval(stripped)
+                    if isinstance(literal, (list, tuple, set)):
+                        return [str(tag) for tag in literal if str(tag).strip()]
+                except (ValueError, SyntaxError):
+                    pass
+            # Canonical comma-separated format: "a,b" → ["a", "b"]
+            return [part.strip() for part in tags.split(",") if part.strip()]
+
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag) for tag in tags]
+
+        return [str(tags)] if tags else []
 
     def _should_be_silenced(self, config: Any, tags: list[str]) -> bool:
         if self.message.task_name in config.silenced:
@@ -112,7 +138,7 @@ class TaskPayload:
     def is_retry(self) -> bool:
         return "retry_of" in self.decoded
 
-    def retry_of(self) -> Optional[str]:
+    def retry_of(self) -> str | None:
         return self.decoded.get("retry_of")
 
     def is_silenced(self) -> bool:

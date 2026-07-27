@@ -16,13 +16,22 @@ class MockWorkerProcess:
         self._memory_mb = memory_mb
         self.terminated = False
         self.killed = False
+        self.stopped = False
         self.broker_path = "test:broker"
         self.queue = "default"
 
     def start(self):
         self._alive = True
 
+    def pause(self):
+        self.stopped = True
+
+    def resume(self):
+        self.stopped = False
+
     def terminate(self):
+        if self.stopped:
+            self.resume()
         self.terminated = True
 
     def kill(self):
@@ -153,6 +162,62 @@ class TestProcessPool:
 
         assert pool.active_process_count == 0
         assert len(pool.terminating) == 3
+
+    def test_pause_stops_all_active_workers(self):
+        """pause() suspends every active worker and marks the pool paused."""
+        workers = [MockWorkerProcess(pid=i) for i in range(3)]
+        pool = self._make_pool(workers)
+
+        pool.pause()
+
+        assert pool.paused is True
+        for worker in workers:
+            assert worker.stopped is True
+
+    def test_pause_leaves_terminating_workers_draining(self):
+        """pause() does not SIGSTOP draining workers — they must finish exiting."""
+        draining = MockWorkerProcess(pid=9)
+        pool = self._make_pool([MockWorkerProcess(pid=1)])
+        pool.terminating = [(draining, time.time())]
+
+        pool.pause()
+
+        assert draining.stopped is False
+
+    def test_resume_continues_all_active_workers(self):
+        """resume() wakes every active worker and clears the paused flag."""
+        workers = [MockWorkerProcess(pid=i) for i in range(2)]
+        pool = self._make_pool(workers)
+
+        pool.pause()
+        pool.resume()
+
+        assert pool.paused is False
+        for worker in workers:
+            assert worker.stopped is False
+
+    def test_scale_up_while_paused_stops_new_workers(self):
+        """Workers spawned while the pool is paused must be immediately suspended."""
+        pool = self._make_pool()
+        pool.pause()
+
+        with patch.object(WorkerProcess, "start"), patch.object(WorkerProcess, "pause") as pause:
+            pool.scale(2)
+
+        assert pool.active_process_count == 2
+        assert pause.call_count == 2
+
+    def test_monitor_respawn_while_paused_stops_replacement(self):
+        """A worker respawned by monitor() while paused must also be suspended."""
+        dead = MockWorkerProcess(alive=False, pid=1)
+        pool = self._make_pool([dead])
+        pool.paused = True
+
+        with patch.object(WorkerProcess, "start"), patch.object(WorkerProcess, "pause") as pause:
+            pool.monitor(memory_limit_mb=128)
+
+        assert pool.active_process_count == 1
+        assert pause.call_count == 1
 
     def test_kill_all_clears_everything(self):
         """kill_all() force-kills all workers and empties both lists."""

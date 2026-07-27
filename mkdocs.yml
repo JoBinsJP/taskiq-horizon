@@ -1,7 +1,7 @@
 site_name: TaskIQ Horizon
 site_description: A beautiful, real-time dashboard and robust configuration system for TaskIQ queues, inspired by Laravel Horizon.
 repo_name: taskiq-horizon
-repo_url: https://github.com/your-org/taskiq-horizon
+repo_url: https://github.com/JoBinsJP/taskiq-horizon
 
 theme:
   name: material

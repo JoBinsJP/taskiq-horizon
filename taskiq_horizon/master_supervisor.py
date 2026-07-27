@@ -103,6 +103,9 @@ class MasterSupervisor:
         # State
         self.running = True
         self.working = True
+        # Set by listeners (e.g. MonitorMasterSupervisorMemory) to request a
+        # graceful shutdown — checked on every loop iteration.
+        self.should_quit = False
         self._pending_signals: list[str] = []
         self._supervisor_tasks: list[asyncio.Task] = []
 
@@ -147,7 +150,14 @@ class MasterSupervisor:
                 # 3. Fire MasterSupervisorLooped event (triggers trims, expiry)
                 await self.dispatcher.fire(MasterSupervisorLooped(master=self))
 
-                # 4. Sleep
+                # 4. Honor graceful-shutdown requests from listeners
+                #    (e.g. master memory limit exceeded) — same termination
+                #    path as horizon:terminate / SIGTERM.
+                if self.should_quit:
+                    self._terminate()
+                    continue
+
+                # 5. Sleep
                 await asyncio.sleep(1)
 
         except asyncio.CancelledError:

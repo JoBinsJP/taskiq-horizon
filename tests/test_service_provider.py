@@ -72,15 +72,20 @@ async def test_mount_dashboard_uses_configured_path_and_dist_assets(tmp_path):
 
     mount_dashboard(app, container, dashboard_dist_dir=dist_dir)
 
-    route_paths = {route.path for route in app.routes}
-    assert "/ops/horizon/api/stats" in route_paths
-    assert "/ops/horizon" in route_paths
-    assert "/ops/horizon/{path:path}" in route_paths
+    # API routes are mounted under the configured dashboard path.
+    # (Introspect via the OpenAPI schema instead of app.routes — newer
+    # fastapi/starlette wrap included routers in objects without `.path`.)
+    openapi_paths = set(app.openapi()["paths"])
+    assert "/ops/horizon/api/stats" in openapi_paths
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         response = await client.get("/ops/horizon")
+        catch_all_response = await client.get("/ops/horizon/some/nested/route")
 
     assert response.status_code == 200
+    # SPA catch-all serves the same shell for nested client-side routes
+    assert catch_all_response.status_code == 200
+    assert catch_all_response.text == response.text
     assert "<strong>Ops</strong>" in response.text
     assert '<style data-scheme="dark">body{color:white;}</style>' in response.text
     assert 'window.Horizon = {"path": "ops/horizon", "proxy_path": "/proxy"};' in response.text

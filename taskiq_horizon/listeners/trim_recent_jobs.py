@@ -8,7 +8,6 @@ r"""
 
 import logging
 import time
-from typing import Optional
 
 from taskiq_horizon.contracts.job_repository import JobRepository
 from taskiq_horizon.events import MasterSupervisorLooped
@@ -22,7 +21,7 @@ class TrimRecentJobsListener:
     def __init__(self, jobs: JobRepository, frequency: int = 60) -> None:
         self.jobs = jobs
         self.frequency = frequency  # seconds between trims
-        self.last_trimmed: Optional[float] = None
+        self.last_trimmed: float | None = None
 
     async def handle(self, event: MasterSupervisorLooped) -> None:
         now = time.time()
