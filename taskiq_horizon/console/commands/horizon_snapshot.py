@@ -10,8 +10,12 @@ class HorizonSnapshotCommand(Command):
     def handle(self):
         import asyncio
 
-        from app.core.application import boot
-        from app.core.container import container
+        try:
+            from alata.application import boot
+            from alata.container import container
+        except ImportError:  # legacy consumers with the embedded app.core framework
+            from app.core.application import boot
+            from app.core.container import container
 
         self.line("<info>Taking Horizon metrics snapshot...</info>")
         boot()
