@@ -113,7 +113,7 @@
                 let unserialized;
 
                 try {
-                    unserialized = phpunserialize(this.job.payload.data.command);
+                    unserialized = decodeSerializedCommand(this.job.payload?.data?.command);
                 }catch(err){
                     //
                 }

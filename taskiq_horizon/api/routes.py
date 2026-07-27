@@ -106,7 +106,9 @@ async def get_stats(
     max_tp = await metrics.queue_with_maximum_throughput()
 
     waits = await wait_time.calculate()
-    wait_val = dict(list(waits.items())[:1]) if waits else {}
+    # The dashboard parses the wait key as Laravel's "connection:queue" pair
+    # (`Object.keys(wait)[0].split(':')[1]`), so key it as "redis:{queue}".
+    wait_val = {f"redis:{queue}": seconds for queue, seconds in list(waits.items())[:1]} if waits else {}
 
     processes = 0
     paused_masters = 0
@@ -285,21 +287,23 @@ async def get_workload(workload=Depends(get_workload_repo)):
 
 @router.get("/jobs/pending")
 async def get_pending_jobs(starting_at: int = -1, jobs=Depends(get_job_repo)):
-    results = await jobs.get_pending(starting_at if starting_at >= 0 else None)
+    # Upstream treats starting_at=0 (the SPA's first-load value) as falsy → -1,
+    # i.e. "from the beginning". Only positive values paginate past an index.
+    results = await jobs.get_pending(starting_at if starting_at > 0 else None)
     total = await jobs.count_pending()
     return {"jobs": results, "total": total}
 
 
 @router.get("/jobs/recent")
 async def get_recent_jobs(starting_at: int = -1, jobs=Depends(get_job_repo)):
-    results = await jobs.get_recent(starting_at if starting_at >= 0 else None)
+    results = await jobs.get_recent(starting_at if starting_at > 0 else None)
     total = await jobs.count_recent()
     return {"jobs": results, "total": total}
 
 
 @router.get("/jobs/completed")
 async def get_completed_jobs(starting_at: int = -1, jobs=Depends(get_job_repo)):
-    results = await jobs.get_completed(starting_at if starting_at >= 0 else None)
+    results = await jobs.get_completed(starting_at if starting_at > 0 else None)
     total = await jobs.count_completed()
     return {"jobs": results, "total": total}
 
@@ -311,9 +315,12 @@ async def get_failed_jobs(
     jobs=Depends(get_job_repo),
     tags=Depends(get_tag_repo),
 ):
-    index = starting_at if starting_at >= 0 else None
+    # starting_at <= 0 means "from the beginning" (upstream `?: -1` semantics).
+    index = starting_at if starting_at > 0 else None
     if tag:
-        results = await jobs.get_jobs_by_tag(f"failed:{tag}", index)
+        # Tag pagination uses start-index semantics, so advance past the
+        # last-seen index here (upstream: `($starting_at ?: -1) + 1`).
+        results = await jobs.get_jobs_by_tag(f"failed:{tag}", index + 1 if index is not None else None)
         total = await tags.count(f"failed:{tag}")
         return {"jobs": results, "total": total}
 
@@ -324,7 +331,7 @@ async def get_failed_jobs(
 
 @router.get("/jobs/silenced")
 async def get_silenced_jobs(starting_at: int = -1, jobs=Depends(get_job_repo)):
-    results = await jobs.get_silenced(starting_at if starting_at >= 0 else None)
+    results = await jobs.get_silenced(starting_at if starting_at > 0 else None)
     total = await jobs.count_silenced()
     return {"jobs": results, "total": total}
 

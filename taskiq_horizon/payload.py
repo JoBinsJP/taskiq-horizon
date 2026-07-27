@@ -38,6 +38,7 @@ class TaskPayload:
             "task_name": self.message.task_name,
             "displayName": self.message.task_name,
             "job": self.message.task_name,
+            "attempts": self._determine_attempts(),
             "maxTries": self.message.labels.get("max_retries", 0),
             "maxExceptions": 0,
             "backoff": 0,
@@ -74,6 +75,19 @@ class TaskPayload:
         )
 
         return self
+
+    def _determine_attempts(self) -> int:
+        """
+        Derive the attempt number for the dashboard's "Attempts" field.
+
+        taskiq's retry middlewares (SimpleRetryMiddleware / SmartRetryMiddleware)
+        stamp the number of prior retries on the "_retries" label, so the
+        current attempt is that count plus one. First runs carry no label.
+        """
+        try:
+            return int(self.message.labels.get("_retries", 0)) + 1
+        except (TypeError, ValueError):
+            return 1
 
     def _encode_message_state(self) -> str:
         state = {

@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -305,3 +306,73 @@ async def test_retry_batch_returns_422_when_retries_cannot_run(redis, config):
 
     assert response.status_code == 422
     assert response.json()["detail"]["message"] == "1 failed job could not be retried"
+
+
+@pytest.mark.asyncio
+async def test_failed_jobs_with_starting_at_zero_returns_newest_job(redis, config):
+    """The SPA sends starting_at=0 on first load; it must not skip the newest row."""
+    app = make_app(redis, config)
+    await seed_failed_job(app, "failed-old-001")
+    await asyncio.sleep(0.002)
+    await seed_failed_job(app, "failed-new-002")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/jobs/failed?starting_at=0")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["total"] == 2
+    assert [job["id"] for job in body["jobs"]] == ["failed-new-002", "failed-old-001"]
+
+
+@pytest.mark.asyncio
+async def test_recent_jobs_with_starting_at_zero_returns_newest_job(redis, config):
+    app = make_app(redis, config)
+    await seed_recent_job(app, "recent-old-001")
+    await asyncio.sleep(0.002)
+    await seed_recent_job(app, "recent-new-002")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/jobs/recent?starting_at=0")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert [job["id"] for job in body["jobs"]] == ["recent-new-002", "recent-old-001"]
+
+
+@pytest.mark.asyncio
+async def test_monitoring_tag_pagination_returns_all_jobs(redis, config):
+    """Tag pagination uses start-index semantics: starting_at=0 must include every job."""
+    app = make_app(redis, config)
+    await seed_failed_job(app, "tag-page-001", tags=["tenant:42"])
+    await asyncio.sleep(0.002)
+    await seed_failed_job(app, "tag-page-002", tags=["tenant:42"])
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        first_page = await client.get("/api/monitoring/tenant:42?starting_at=0")
+        second_page = await client.get("/api/monitoring/tenant:42?starting_at=1")
+
+    first_body = first_page.json()
+    assert first_page.status_code == 200
+    assert first_body["total"] == 2
+    assert [job["id"] for job in first_body["jobs"]] == ["tag-page-002", "tag-page-001"]
+
+    assert [job["id"] for job in second_page.json()["jobs"]] == ["tag-page-001"]
+
+
+@pytest.mark.asyncio
+async def test_stats_wait_is_keyed_by_connection_and_queue(redis, config):
+    """dashboard.vue splits the wait key on ':' expecting Laravel's connection:queue format."""
+
+    class WaitTimeWithData:
+        async def calculate(self):
+            return {"default": 12.5}
+
+    app = make_app(redis, config)
+    app.state.horizon_wait_time = WaitTimeWithData()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/stats")
+
+    assert response.status_code == 200
+    assert response.json()["wait"] == {"redis:default": 12.5}

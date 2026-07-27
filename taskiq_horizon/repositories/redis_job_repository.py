@@ -81,17 +81,19 @@ class RedisJobRepository(JobRepository):
         return await self._count_jobs_by_type("recent_failed_jobs")
 
     async def _get_jobs_by_type(self, type_name: str, after_index: int | None) -> list[dict[str, Any]]:
-        # Using exact ZREVRANGE pagination matching Laravel Horizon's API.
+        # Scores are negated timestamps, so an ascending ZRANGE yields
+        # newest-first — mirroring Laravel Horizon's RedisJobRepository::getJobsByType().
         start = after_index + 1 if after_index is not None and after_index >= 0 else 0
         end = start + 49  # Fetch 50 items
-        job_ids = await self.redis.zrevrange(self._key(type_name), start, end)
+        job_ids = await self.redis.zrange(self._key(type_name), start, end)
         return await self.get_jobs([j.decode("utf-8") if isinstance(j, bytes) else str(j) for j in job_ids], start)
 
     async def get_jobs_by_tag(self, tag: str, after_index: int | None = None) -> list[dict[str, Any]]:
-        # Tag fetching logic parity
-        start = after_index + 1 if after_index is not None and after_index >= 0 else 0
+        # Tag pagination uses START-INDEX semantics (upstream RedisTagRepository::paginate()):
+        # after_index is the offset to start from, not the index of the last seen job.
+        start = after_index if after_index is not None and after_index >= 0 else 0
         end = start + 49
-        job_ids = await self.redis.zrevrange(f"{self.prefix}tags:{tag}", start, end)
+        job_ids = await self.redis.zrange(f"{self.prefix}tags:{tag}", start, end)
         return await self.get_jobs([j.decode("utf-8") if isinstance(j, bytes) else str(j) for j in job_ids], start)
 
     async def _count_jobs_by_type(self, type_name: str) -> int:

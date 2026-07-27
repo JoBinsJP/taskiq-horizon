@@ -1,3 +1,5 @@
+import time
+
 from redis.asyncio import Redis
 
 from taskiq_horizon.config import HorizonConfig
@@ -30,9 +32,13 @@ class RedisTagRepository(TagRepository):
         return [m.decode("utf-8") for m in members]
 
     async def add(self, task_id: str, tags: list[str]) -> None:
+        # Negated-timestamp scores (same convention as the job zsets) so an
+        # ascending ZRANGE returns tagged jobs newest-first. Upstream stores a
+        # timestamp score here too (RedisTagRepository::add()).
+        score = time.time() * -1
         async with self.redis.pipeline() as pipe:
             for tag in tags:
-                pipe.zadd(self._key(f"tags:{tag}"), {task_id: 0})
+                pipe.zadd(self._key(f"tags:{tag}"), {task_id: score})
             await pipe.execute()
 
     async def count(self, tag: str) -> int:

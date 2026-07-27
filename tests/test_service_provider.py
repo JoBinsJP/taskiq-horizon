@@ -87,7 +87,11 @@ async def test_mount_dashboard_uses_configured_path_and_dist_assets(tmp_path):
     assert catch_all_response.status_code == 200
     assert catch_all_response.text == response.text
     assert "<strong>Ops</strong>" in response.text
-    assert '<style data-scheme="dark">body{color:white;}</style>' in response.text
+    # Dark sheet ships with a prefers-color-scheme media query so the first
+    # paint matches the system theme (the SchemeToggler rewrites it at runtime).
+    assert '<style data-scheme="dark" media="(prefers-color-scheme: dark)">body{color:white;}</style>' in response.text
+    # Self-hosted Figtree faces reference the mounted assets prefix.
+    assert 'url("/ops/horizon/assets/fonts/figtree-latin-400-normal.woff2")' in response.text
     assert 'window.Horizon = {"path": "ops/horizon", "proxy_path": "/proxy"};' in response.text
     assert '<script type="module" src="/ops/horizon/assets/app.js"></script>' in response.text
 

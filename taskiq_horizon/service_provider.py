@@ -282,10 +282,23 @@ def _render_dashboard(*, config, dist_dir: Path, assets_prefix: str) -> str:
     title = getattr(config, "name", "") or "TaskIQ Horizon"
     header = f"<strong>{html.escape(title)}</strong>"
 
+    # Self-hosted Figtree (no CDN dependency — consistent fonts offline).
+    font_faces = "\n".join(
+        f"@font-face{{font-family:Figtree;font-style:normal;font-weight:{weight};font-display:swap;"
+        f'src:url("{assets_prefix}/fonts/figtree-latin-{weight}-normal.woff2") format("woff2")}}'
+        for weight in (300, 400, 500, 600)
+    )
+
+    # Order matters: component CSS (app_css) first so the theme sheets'
+    # overrides (e.g. the JSON viewer dark rules) win; the dark sheet ships
+    # with a prefers-color-scheme media query so the FIRST paint matches the
+    # system theme — the SchemeToggler rewrites `media` at runtime for the
+    # explicit dark/light choices.
     inline_css = (
+        f"<style>{font_faces}</style>\n"
+        f"<style>{app_css}</style>\n"
         f'<style data-scheme="light">{styles}</style>\n'
-        f'<style data-scheme="dark">{styles_dark}</style>\n'
-        f"<style>{app_css}</style>"
+        f'<style data-scheme="dark" media="(prefers-color-scheme: dark)">{styles_dark}</style>'
     )
     inline_js = (
         "<script>\n"

@@ -142,11 +142,11 @@
                     <div class="col-md-2 text-muted">Name</div>
                     <div class="col">{{batch.name}}</div>
                 </div>
-                <div class="row mb-2" v-if="batch.options.queue">
+                <div class="row mb-2" v-if="batch.options?.queue">
                     <div class="col-md-2 text-muted">Queue</div>
                     <div class="col">{{batch.options.queue}}</div>
                 </div>
-                <div class="row mb-2" v-if="batch.options.connection">
+                <div class="row mb-2" v-if="batch.options?.connection">
                     <div class="col-md-2 text-muted">Connection</div>
                     <div class="col">{{batch.options.connection}}</div>
                 </div>

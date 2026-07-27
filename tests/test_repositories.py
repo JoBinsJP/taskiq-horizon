@@ -1,5 +1,6 @@
 """Tests for Redis repository flush_expired methods."""
 
+import asyncio
 import time
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from taskiq_horizon.repositories.redis_master_repository import (
     RedisSupervisorRepository,
 )
 from taskiq_horizon.repositories.redis_metrics_repository import RedisMetricsRepository
+from taskiq_horizon.repositories.redis_tag_repository import RedisTagRepository
 
 
 class TestRedisMasterSupervisorRepository:
@@ -251,3 +253,116 @@ class TestRedisJobRepository:
         assert len(pending) == 1
         assert pending[0]["id"] == "pending-high"
         assert pending[0]["queue"] == "high"
+
+    @pytest.mark.asyncio
+    async def test_get_jobs_by_type_returns_newest_first(self, repo):
+        """Job lists must render newest-first (ascending zrange over negated-timestamp scores)."""
+        older = self._payload("order-older-001")
+        newer = self._payload("order-newer-002")
+
+        await repo.pushed("redis", "default", older)
+        await asyncio.sleep(0.002)  # guarantee distinct timestamp scores
+        await repo.pushed("redis", "default", newer)
+
+        recent = await repo.get_recent()
+        assert [job["id"] for job in recent] == ["order-newer-002", "order-older-001"]
+
+        pending = await repo.get_pending()
+        assert [job["id"] for job in pending] == ["order-newer-002", "order-older-001"]
+
+    @pytest.mark.asyncio
+    async def test_failed_jobs_returned_newest_first(self, repo):
+        older = self._payload("failed-older-001")
+        newer = self._payload("failed-newer-002")
+
+        await repo.pushed("redis", "default", older)
+        await repo.failed(RuntimeError("first"), "redis", "default", older)
+        await asyncio.sleep(0.002)
+        await repo.pushed("redis", "default", newer)
+        await repo.failed(RuntimeError("second"), "redis", "default", newer)
+
+        failed = await repo.get_failed()
+        assert [job["id"] for job in failed] == ["failed-newer-002", "failed-older-001"]
+
+    @pytest.mark.asyncio
+    async def test_completed_and_silenced_jobs_returned_newest_first(self, repo):
+        older = self._payload("done-older-001")
+        newer = self._payload("done-newer-002")
+
+        await repo.pushed("redis", "default", older)
+        await repo.completed(older)
+        await asyncio.sleep(0.002)
+        await repo.pushed("redis", "default", newer)
+        await repo.completed(newer)
+
+        completed = await repo.get_completed()
+        assert [job["id"] for job in completed] == ["done-newer-002", "done-older-001"]
+
+        silenced_older = self._payload("quiet-older-001")
+        silenced_newer = self._payload("quiet-newer-002")
+        await repo.pushed("redis", "default", silenced_older)
+        await repo.completed(silenced_older, silenced=True)
+        await asyncio.sleep(0.002)
+        await repo.pushed("redis", "default", silenced_newer)
+        await repo.completed(silenced_newer, silenced=True)
+
+        silenced = await repo.get_silenced()
+        assert [job["id"] for job in silenced] == ["quiet-newer-002", "quiet-older-001"]
+
+
+class TestRedisTagRepository:
+    @pytest.fixture
+    def repo(self, redis, config):
+        return RedisTagRepository(redis, config)
+
+    @pytest.fixture
+    def job_repo(self, redis, config):
+        return RedisJobRepository(redis, config)
+
+    def _payload(self, task_id: str) -> TaskPayload:
+        message = TaskiqMessage(
+            task_id=task_id,
+            task_name="memory:write",
+            labels={"queue_name": "default"},
+            args=[],
+            kwargs={},
+        )
+        return TaskPayload(message).prepare(SimpleNamespace(silenced=[], silenced_tags=[]))
+
+    @pytest.mark.asyncio
+    async def test_add_stores_negated_timestamp_scores(self, repo, redis):
+        before = time.time() * -1
+        await repo.add("tag-job-001", ["tenant:42"])
+        after = time.time() * -1
+
+        score = await redis.zscore("test-horizon:tags:tenant:42", "tag-job-001")
+        assert score is not None
+        assert after <= score <= before
+
+    @pytest.mark.asyncio
+    async def test_tagged_jobs_returned_newest_first(self, repo, job_repo):
+        older = self._payload("tagged-older-001")
+        newer = self._payload("tagged-newer-002")
+
+        await job_repo.pushed("redis", "default", older)
+        await repo.add("tagged-older-001", ["tenant:42"])
+        await asyncio.sleep(0.002)
+        await job_repo.pushed("redis", "default", newer)
+        await repo.add("tagged-newer-002", ["tenant:42"])
+
+        jobs = await job_repo.get_jobs_by_tag("tenant:42")
+        assert [job["id"] for job in jobs] == ["tagged-newer-002", "tagged-older-001"]
+
+    @pytest.mark.asyncio
+    async def test_get_jobs_by_tag_uses_start_index_pagination(self, repo, job_repo):
+        """Tag pagination is start-index based: after_index=0 starts at the first job."""
+        for task_id in ["page-job-001", "page-job-002"]:
+            await job_repo.pushed("redis", "default", self._payload(task_id))
+            await repo.add(task_id, ["paged"])
+            await asyncio.sleep(0.002)
+
+        all_jobs = await job_repo.get_jobs_by_tag("paged", 0)
+        assert [job["id"] for job in all_jobs] == ["page-job-002", "page-job-001"]
+
+        second_page = await job_repo.get_jobs_by_tag("paged", 1)
+        assert [job["id"] for job in second_page] == ["page-job-001"]

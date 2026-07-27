@@ -369,3 +369,25 @@ class TestMiddlewareLifecycle:
 
         failed_job = await job_repo.find_failed("timestamp-failure-001")
         assert failed_job["payload"]["pushedAt"] == pushed_at
+
+
+class TestTaskPayloadAttempts:
+    """The dashboard renders "Attempts" from payload.attempts."""
+
+    def test_attempts_defaults_to_one(self, config):
+        payload = TaskPayload(make_message()).prepare(config)
+
+        assert payload.decoded["attempts"] == 1
+        assert json.loads(payload.value)["attempts"] == 1
+
+    def test_attempts_derived_from_taskiq_retry_label(self, config):
+        msg = make_message(labels={"_retries": "2"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.decoded["attempts"] == 3
+
+    def test_attempts_falls_back_to_one_on_bad_label(self, config):
+        msg = make_message(labels={"_retries": "not-a-number"})
+        payload = TaskPayload(msg).prepare(config)
+
+        assert payload.decoded["attempts"] == 1

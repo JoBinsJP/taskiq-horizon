@@ -33,6 +33,12 @@ const patches = [
     to: `                    return prettyPrintSerializedJobData(data);\n                } catch (err) {\n                    return data;\n                }`,
   },
   {
+    // The delayed() computed still referenced phpunserialize after the import swap.
+    file: "src/js/screens/recentJobs/job.vue",
+    from: `                    unserialized = phpunserialize(this.job.payload.data.command);`,
+    to: `                    unserialized = decodeSerializedCommand(this.job.payload?.data?.command);`,
+  },
+  {
     file: "src/js/screens/recentJobs/job-row.vue",
     from: `    import phpunserialize from 'phpunserialize'\n    import moment from 'moment-timezone';`,
     to: `    import moment from 'moment-timezone';\n    import { decodeSerializedCommand } from '@/support/job-data';`,
@@ -66,6 +72,23 @@ const patches = [
     file: "src/js/screens/failedJobs/job.vue",
     from: `                    return data.command && !data.command.includes('CallQueuedClosure')\n                        ? phpunserialize(data.command) : data;\n                } catch (err) {\n                    return data;\n                }`,
     to: `                    return prettyPrintSerializedJobData(data);\n                } catch (err) {\n                    return data;\n                }`,
+  },
+  {
+    // taskiq-horizon never stores exception context; hide the card instead of rendering "null".
+    file: "src/js/screens/failedJobs/job.vue",
+    from: `        <div class="card overflow-hidden mt-4" v-if="ready">\n            <div class="card-header d-flex align-items-center justify-content-between">\n                <h2 class="h6 m-0">Exception Context</h2>`,
+    to: `        <div class="card overflow-hidden mt-4" v-if="ready && job.context">\n            <div class="card-header d-flex align-items-center justify-content-between">\n                <h2 class="h6 m-0">Exception Context</h2>`,
+  },
+  {
+    // Batch records without an options map must not white-screen the preview.
+    file: "src/js/screens/batches/preview.vue",
+    from: `<div class="row mb-2" v-if="batch.options.queue">`,
+    to: `<div class="row mb-2" v-if="batch.options?.queue">`,
+  },
+  {
+    file: "src/js/screens/batches/preview.vue",
+    from: `<div class="row mb-2" v-if="batch.options.connection">`,
+    to: `<div class="row mb-2" v-if="batch.options?.connection">`,
   },
   {
     file: "src/js/components/LineChart.vue",
