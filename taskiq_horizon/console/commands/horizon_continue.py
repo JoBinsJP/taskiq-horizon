@@ -1,4 +1,4 @@
-from app.core.foundation.console import Command
+from cleo.commands.command import Command
 
 
 class HorizonContinueCommand(Command):
