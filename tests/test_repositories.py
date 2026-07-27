@@ -208,6 +208,42 @@ class TestRedisJobRepository:
         assert "RuntimeError: boom with trace" in job["exception"]
 
     @pytest.mark.asyncio
+    async def test_failed_stores_diagnostic_context_automatically(self, repo):
+        """failed() always stores an exception context for the dashboard card."""
+        payload = self._payload("failing-job-ctx")
+        await repo.pushed("redis", "high", payload)
+
+        await repo.failed(RuntimeError("ctx boom"), "redis", "high", payload)
+
+        job = await repo.find_failed("failing-job-ctx")
+        assert job is not None
+        context = job["context"]
+        assert isinstance(context, dict)
+        assert context["exception_type"] == "RuntimeError"
+        assert context["queue"] == "high"
+        assert context["connection"] == "redis"
+        assert context["task_name"] == "memory:write"
+        assert context["attempts"] == 1
+        assert isinstance(context["labels"], dict)
+
+    @pytest.mark.asyncio
+    async def test_failed_merges_exception_provided_context(self, repo):
+        """An exception exposing a Laravel-style context dict is merged in."""
+        payload = self._payload("failing-job-ctx2")
+        await repo.pushed("redis", "default", payload)
+
+        class ContextualError(RuntimeError):
+            def context(self):
+                return {"order_id": 42}
+
+        await repo.failed(ContextualError("boom"), "redis", "default", payload)
+
+        job = await repo.find_failed("failing-job-ctx2")
+        assert job is not None
+        assert job["context"]["order_id"] == 42
+        assert job["context"]["exception_type"] == "ContextualError"
+
+    @pytest.mark.asyncio
     async def test_failed_retry_marks_parent_retry_entry_failed(self, repo):
         """A failed retry must flip its entry on the parent job to 'failed', not stay 'pending'."""
         parent = self._payload("parent-job-001")

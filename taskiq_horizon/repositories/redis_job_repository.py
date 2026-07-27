@@ -137,6 +137,11 @@ class RedisJobRepository(JobRepository):
                     with contextlib.suppress(json.JSONDecodeError):
                         job_dict["payload"] = json.loads(job_dict["payload"])
 
+                # Context is stored as JSON; the dashboard renders it as an object.
+                if isinstance(job_dict.get("context"), str):
+                    with contextlib.suppress(json.JSONDecodeError):
+                        job_dict["context"] = json.loads(job_dict["context"])
+
                 if "retried_by" in job_dict and isinstance(job_dict["retried_by"], str):
                     try:
                         # Horizon explicitly checks 'retried_by' and expects a list of objects, natively descended by retried_at
@@ -299,6 +304,36 @@ class RedisJobRepository(JobRepository):
             return "".join(traceback.format_exception(type(exception), exception, exception.__traceback__))
         return str(exception)
 
+    def _build_context(self, exception: Exception, connection: str, queue: str, payload: TaskPayload) -> str:
+        """Build the exception context stored alongside a failed job.
+
+        Laravel Horizon renders whatever the exception's ``context()`` returns;
+        taskiq exceptions rarely carry one, so a diagnostic context is always
+        assembled automatically (and merged with the exception's own ``context``
+        attribute/method when present, mirroring Laravel's convention).
+        """
+        context: dict[str, Any] = {
+            "exception_type": type(exception).__name__,
+            "connection": connection,
+            "queue": queue,
+            "task_name": payload.display_name(),
+            "attempts": payload.decoded.get("attempts", 1),
+            "tags": payload.decoded.get("tags", []),
+            "labels": {str(k): str(v) for k, v in dict(payload.message.labels).items()},
+        }
+
+        custom = getattr(exception, "context", None)
+        if callable(custom):
+            with contextlib.suppress(Exception):
+                custom = custom()
+        if isinstance(custom, dict):
+            context.update({str(k): v for k, v in custom.items()})
+
+        try:
+            return json.dumps(context, default=str)
+        except (TypeError, ValueError):
+            return json.dumps({"exception_type": type(exception).__name__})
+
     async def failed(self, exception: Exception, connection: str, queue: str, payload: TaskPayload) -> None:
         if payload.is_retry():
             await self._update_retry_information_on_parent(payload, failed=True)
@@ -321,6 +356,7 @@ class RedisJobRepository(JobRepository):
                     "status": "failed",
                     "payload": payload.value,
                     "exception": self._format_exception(exception),
+                    "context": self._build_context(exception, connection, queue, payload),
                     "failed_at": str(time.time()),
                 },
             )

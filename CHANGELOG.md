@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-07-27
+
+### Added
+
+- Failed jobs automatically store an exception context (exception type,
+  connection, queue, task name, attempts, tags, labels), so the dashboard's
+  "Exception Context" card is populated instead of hidden. Exceptions may
+  additionally expose a Laravel-style `context` attribute or method returning
+  a dict — it is merged into the stored context.
+
 ## [0.1.2] - 2026-07-27
 
 UI-contract fixes bringing the API responses and dashboard in line with
