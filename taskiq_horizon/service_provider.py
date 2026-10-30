@@ -48,6 +48,7 @@ def register_services(container: Container) -> None:
     """
 
     # Repositories
+    container.singleton("horizon.queue_backend", lambda: _make_queue_backend(container))
     container.singleton("horizon.jobs", lambda: _make_job_repo(container))
     container.singleton("horizon.metrics", lambda: _make_metrics_repo(container))
     container.singleton("horizon.tags", lambda: _make_tag_repo(container))
@@ -148,6 +149,7 @@ def _make_workload_repo(container: Container):
         redis=container.make("horizon.redis"),
         wait_time=container.make("horizon.wait_time"),
         supervisor_repo=container.make("horizon.supervisors"),
+        queue_length_fetcher=container.make("horizon.wait_time")._get_queue_length,
     )
 
 
@@ -171,8 +173,11 @@ def _make_wait_time(container: Container):
     redis = container.make("horizon.redis")
     metrics = container.make("horizon.metrics")
     supervisor_repo = container.make("horizon.supervisors")
+    backend = container.make("horizon.queue_backend")
 
     async def queue_len(q):
+        if backend is not None:
+            return await backend.size(q)
         return await redis.llen(q)
 
     async def supervisor_fetcher():
@@ -182,10 +187,22 @@ def _make_wait_time(container: Container):
         metrics,
         queue_length_fetcher=queue_len,
         supervisor_fetcher=supervisor_fetcher,
+        connection=backend.connection if backend is not None else "redis",
     )
     if hasattr(metrics, "set_wait_time_calculator"):
         metrics.set_wait_time_calculator(calculator)
     return calculator
+
+
+def _make_queue_backend(container: Container):
+    from taskiq_horizon.queue_backend import queue_backend
+
+    try:
+        broker = container.make("queue.broker")
+    except KeyError:
+        # Low-level dashboard-only embedding has no worker broker.
+        return None
+    return queue_backend(broker)
 
 
 def _make_command_queue(container: Container):

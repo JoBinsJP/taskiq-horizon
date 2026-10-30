@@ -38,7 +38,11 @@ class RedisTagRepository(TagRepository):
         score = time.time() * -1
         async with self.redis.pipeline() as pipe:
             for tag in tags:
-                pipe.zadd(self._key(f"tags:{tag}"), {task_id: score})
+                key = self._key(f"tags:{tag}")
+                minutes = self.config.trim.failed if tag.startswith("failed:") else self.config.trim.monitored
+                pipe.zadd(key, {task_id: score})
+                pipe.zremrangebyscore(key, -(time.time() - minutes * 60), "+inf")
+                pipe.expire(key, minutes * 60)
             await pipe.execute()
 
     async def count(self, tag: str) -> int:

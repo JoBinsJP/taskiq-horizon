@@ -150,7 +150,14 @@ class TestProcessPool:
         # Hog should be terminated and moved to draining
         assert hog.terminated is True
         assert len(pool.terminating) == 1
-        # But a replacement was spawned, so still 2 active
+        assert pool.active_process_count == 1
+        for _ in range(3):
+            pool.monitor(memory_limit_mb=128)
+            assert pool.total_process_count == 2
+        hog._alive = False
+        pool.prune_terminating()
+        with patch.object(WorkerProcess, "start"):
+            pool.monitor(memory_limit_mb=128)
         assert pool.active_process_count == 2
 
     def test_terminate_all_moves_everything_to_draining(self):
@@ -163,61 +170,43 @@ class TestProcessPool:
         assert pool.active_process_count == 0
         assert len(pool.terminating) == 3
 
-    def test_pause_stops_all_active_workers(self):
-        """pause() suspends every active worker and marks the pool paused."""
+    def test_pause_drains_workers_without_freezing_jobs(self):
         workers = [MockWorkerProcess(pid=i) for i in range(3)]
         pool = self._make_pool(workers)
-
         pool.pause()
-
-        assert pool.paused is True
+        pool.pause()  # Repeated commands must not overwrite the resume target.
+        assert pool.paused
+        assert pool.active_process_count == 0
+        assert len(pool.terminating) == 3
+        assert all(w.terminated and not w.stopped for w in workers)
         for worker in workers:
-            assert worker.stopped is True
+            worker._alive = False
+        pool.prune_terminating()
+        with patch.object(WorkerProcess, "start"):
+            pool.resume()
+        assert not pool.paused
+        assert pool.active_process_count == 3
 
-    def test_pause_leaves_terminating_workers_draining(self):
-        """pause() does not SIGSTOP draining workers — they must finish exiting."""
-        draining = MockWorkerProcess(pid=9)
-        pool = self._make_pool([MockWorkerProcess(pid=1)])
-        pool.terminating = [(draining, time.time())]
-
+    def test_scale_while_paused_updates_resume_target_without_spawning(self):
+        pool = self._make_pool([MockWorkerProcess()])
         pool.pause()
-
-        assert draining.stopped is False
-
-    def test_resume_continues_all_active_workers(self):
-        """resume() wakes every active worker and clears the paused flag."""
-        workers = [MockWorkerProcess(pid=i) for i in range(2)]
-        pool = self._make_pool(workers)
-
-        pool.pause()
-        pool.resume()
-
-        assert pool.paused is False
-        for worker in workers:
-            assert worker.stopped is False
-
-    def test_scale_up_while_paused_stops_new_workers(self):
-        """Workers spawned while the pool is paused must be immediately suspended."""
-        pool = self._make_pool()
-        pool.pause()
-
-        with patch.object(WorkerProcess, "start"), patch.object(WorkerProcess, "pause") as pause:
+        with patch.object(WorkerProcess, "start") as start:
             pool.scale(2)
+            pool.monitor()
+            start.assert_not_called()
+            assert pool.active_process_count == 0
+            pool.terminating[0][0]._alive = False
+            pool.prune_terminating()
+            pool.resume()
+            assert start.call_count == 2
 
-        assert pool.active_process_count == 2
-        assert pause.call_count == 2
-
-    def test_monitor_respawn_while_paused_stops_replacement(self):
-        """A worker respawned by monitor() while paused must also be suspended."""
-        dead = MockWorkerProcess(alive=False, pid=1)
-        pool = self._make_pool([dead])
-        pool.paused = True
-
-        with patch.object(WorkerProcess, "start"), patch.object(WorkerProcess, "pause") as pause:
-            pool.monitor(memory_limit_mb=128)
-
+    def test_monitor_cleans_up_orphans_before_replacing_dead_worker(self):
+        worker = MockWorkerProcess(alive=False)
+        pool = self._make_pool([worker])
+        with patch.object(WorkerProcess, "start"):
+            pool.monitor()
+        assert worker.killed
         assert pool.active_process_count == 1
-        assert pause.call_count == 1
 
     def test_kill_all_clears_everything(self):
         """kill_all() force-kills all workers and empties both lists."""

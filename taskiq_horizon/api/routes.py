@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from taskiq_horizon.jobs import RetryFailedJob
 
@@ -62,7 +62,7 @@ class MonitorTagRequest(BaseModel):
 
 
 class ScaleRequest(BaseModel):
-    scale: int
+    scale: int = Field(ge=0, strict=True)
 
 
 def _batch_retry_failure(missing: list[str], errors: dict[str, str]) -> tuple[int, dict]:
@@ -106,9 +106,8 @@ async def get_stats(
     max_tp = await metrics.queue_with_maximum_throughput()
 
     waits = await wait_time.calculate()
-    # The dashboard parses the wait key as a "connection:queue" pair
-    # (`Object.keys(wait)[0].split(':')[1]`), so key it as "redis:{queue}".
-    wait_val = {f"redis:{queue}": seconds for queue, seconds in list(waits.items())[:1]} if waits else {}
+    connection = getattr(wait_time, "connection", "redis")
+    wait_val = {f"{connection}:{queue}": seconds for queue, seconds in list(waits.items())[:1]} if waits else {}
 
     processes = 0
     paused_masters = 0
@@ -121,7 +120,7 @@ async def get_stats(
         paused_masters = len([m for m in masters if m.get("status") == "paused"])
 
         if masters:
-            status = "paused" if paused_masters > 0 else "running"
+            status = "paused" if paused_masters == len(masters) else "running"
 
         for supervisor in supps:
             process_dict = supervisor.get("processes", {})
@@ -221,7 +220,9 @@ async def get_batches(
 
 
 @router.get("/batches/{batch_id}")
-async def get_batch_detail(batch_id: str, request: Request, batches=Depends(get_batch_repo)):
+async def get_batch_detail(
+    batch_id: str, request: Request, batches=Depends(get_batch_repo), jobs=Depends(get_job_repo)
+):
     if not batches:
         raise HTTPException(status_code=501, detail="Not Configured")
     broker = getattr(request.app.state, "broker", None)
@@ -229,6 +230,7 @@ async def get_batch_detail(batch_id: str, request: Request, batches=Depends(get_
     batch = await batches.find_batch(batch_id, broker=broker)
     if not batch:
         raise HTTPException(status_code=404, detail="Not Found")
+    batch["failedJobs"] = await jobs.get_jobs(batch.get("batch", {}).get("failedJobIds", []))
     return batch
 
 
@@ -398,9 +400,19 @@ async def get_metrics_queue_detail(queue_id: str, metrics=Depends(get_metrics_re
 
 @router.post("/queues/{queue}/purge")
 @router.delete("/queues/{queue}/purge")
-async def purge_queue(queue: str, jobs=Depends(get_job_repo)):
-    purged = await jobs.purge(queue)
-    return {"status": "purged", "queue": queue, "count": purged}
+async def purge_queue(queue: str, request: Request, jobs=Depends(get_job_repo)):
+    from taskiq_horizon.queue_backend import queue_backend
+
+    broker = getattr(request.app.state, "broker", None)
+    if broker is None:
+        raise HTTPException(status_code=501, detail="Queue broker not configured")
+    try:
+        backend = queue_backend(broker)
+        count = await backend.purge(queue)
+    except (ValueError, NotImplementedError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await jobs.purge(queue)
+    return {"status": "purge_requested" if backend.connection == "sqs" else "purged", "queue": queue, "count": count}
 
 
 @router.post("/masters/pause")
@@ -413,8 +425,7 @@ async def pause_masters(
 
     masters = await master_repo.all_masters()
     for master in masters:
-        for supervisor_name in master.get("supervisors", []):
-            await command_queue.push(supervisor_name, "pause")
+        await command_queue.push(master["name"], "pause")
 
     return {"status": "ok", "message": f"Pause sent to {len(masters)} master(s)"}
 
@@ -429,8 +440,7 @@ async def continue_masters(
 
     masters = await master_repo.all_masters()
     for master in masters:
-        for supervisor_name in master.get("supervisors", []):
-            await command_queue.push(supervisor_name, "continue")
+        await command_queue.push(master["name"], "continue")
 
     return {"status": "ok", "message": f"Continue sent to {len(masters)} master(s)"}
 
@@ -445,8 +455,7 @@ async def terminate_masters(
 
     masters = await master_repo.all_masters()
     for master in masters:
-        for supervisor_name in master.get("supervisors", []):
-            await command_queue.push(supervisor_name, "terminate", {"status": 0})
+        await command_queue.push(master["name"], "terminate")
 
     return {"status": "ok", "message": f"Terminate sent to {len(masters)} master(s)"}
 

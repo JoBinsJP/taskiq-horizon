@@ -7,14 +7,16 @@ name = "taskiq-horizon"
 version = "0.1.3"
 description = "Laravel Horizon port for Python TaskIQ"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
     { name = "Sajan Lamsal", email = "sajan@jobins.jp" },
     { name = "TaskIQ Horizon Contributors" }
 ]
 dependencies = [
-    "taskiq>=0.11",
+    "alata>=0.12.0.1,<0.13",
+    "taskiq>=0.13.0,<0.14",
+    "taskiq-aio-sqs>=2.1.1,<2.2",
     "redis[hiredis]>=5.0",
     "fastapi>=0.100",
     "uvicorn>=0.20",
@@ -34,6 +36,9 @@ dev = [
     "httpx",
     "ruff>=0.15",
     "pre-commit>=4.0",
+    "aiosqlite>=0.20",
+    "aiomysql>=0.2",
+    "pymysql[rsa]>=1.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -42,7 +47,7 @@ include = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]

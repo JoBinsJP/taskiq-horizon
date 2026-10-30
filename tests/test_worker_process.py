@@ -24,6 +24,7 @@ def test_worker_process_start_sets_queue_name_env(monkeypatch):
     with patch("taskiq_horizon.worker_process.subprocess.Popen", return_value=process) as popen:
         worker.start()
 
+    assert popen.call_args.kwargs["start_new_session"] is True
     assert worker.pid == 4321
 
     kwargs = popen.call_args.kwargs
@@ -57,7 +58,7 @@ def test_worker_process_start_uses_configurable_queue_env_var(monkeypatch):
 def _dummy_worker() -> WorkerProcess:
     """A WorkerProcess wrapping a real dummy subprocess (sleep loop)."""
     worker = WorkerProcess(broker_path="test:broker")
-    worker.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    worker.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
     worker.pid = worker.process.pid
     return worker
 

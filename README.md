@@ -1,14 +1,15 @@
 # TaskIQ Horizon
 
-A Python port of Laravel Horizon's monitoring dashboard and process management for the [TaskIQ](https://taskiq-python.github.io/) asynchronous task queue framework.
+Horizon provides queue monitoring and worker management for Alata, powered by [TaskIQ](https://taskiq-python.github.io/) and inspired by Laravel Horizon.
 
 ## Features
 
 - **Real-Time Dashboard**: See pending, completed, silenced, and failed jobs as they happen.
 - **Metrics**: Track throughput and runtime metrics for specific queues and jobs over time.
-- **Laravel-Style Process Management**: The supervisor supports `auto`, `simple`, and `false` balancing modes, including per-queue autoscaling for Redis deployments.
-- **Redis-First Runtime**: The dashboard, metrics, workload calculation, and supervisor control plane are production-ready on Redis today.
-- **Broker Agnostic Middleware**: Metrics/job lifecycle tracking can still be attached to any TaskIQ broker, even though Horizon's control plane is Redis-backed.
+- **Laravel-Style Process Management**: The supervisor supports `auto`, `simple`, and `false` balancing modes, including per-queue autoscaling for Redis, database, and SQS queues.
+- **Alata Integration**: One service provider connects your application, console commands, and dashboard.
+- **Queue Visibility**: Backlog comes from your job connection; Redis stores Horizon history and metrics.
+- **Retry Tracking**: Failed attempts remain pending while automatic retries continue. Dashboard retries receive a fresh retry allowance.
 
 ## Documentation
 
@@ -21,19 +22,25 @@ mkdocs serve
 
 ## Quick Installation
 
-TaskIQ Horizon is built for modern Python environments and recommends `uv` for installation:
+Requires Alata 0.12.0.1 or later in the 0.12 series, TaskIQ 0.13.x, and Python 3.12–3.14. The process manager supports Linux and macOS.
+
+This compatibility update and its Alata patch are unreleased. From your Alata application, install both updated checkouts:
 
 ```bash
-# Using uv (Recommended)
-uv pip install taskiq-horizon
-
-# Local development installation:
-uv pip install -e path/to/taskiq-horizon
+uv add --editable ../alata-core ../taskiq-horizon
 ```
 
-*(Standard `pip install taskiq-horizon` works as well)*
+Follow [Installation](docs/installation.md) to configure and register `HorizonProvider`, then run `./alata horizon`.
 
-To run the Vue SPA dashboard and APIs, mount the dashboard routes using the dedicated Service Provider on your ASGI application. Detailed instructions are available in the MkDocs `docs/installation.md` file.
+For package development with sibling checkouts:
+
+```bash
+uv venv
+uv pip install -e '../alata-core[sqlite,mysql]' -e '.[dev]'
+.venv/bin/python -m pytest -q
+```
+
+CI runs the suite on Python 3.12, 3.13, and 3.14 with Redis and SQLite, PostgreSQL, or MySQL. SQS API calls are tested with botocore stubs. To include live services locally, set `HORIZON_TEST_REDIS_URL` and `HORIZON_TEST_DATABASE_URL` to disposable test services.
 
 ## Local UI Smoke Test
 

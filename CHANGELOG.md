@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Verified Alata `ShouldQueue` jobs through Horizon-managed workers, including
+  automatic package discovery, class names in history, and retries. Alata setup
+  examples now use shared queue discovery without worker filename patterns.
+- Native Alata provider for configuration, job tracking, console commands, HTTP dashboard mounting, and Redis cleanup.
+- Queue inspection for Alata's Redis, database, and SQS connections. Database backlog counts runnable jobs, including expired reservations; SQS uses approximate visible-message counts.
+- Alata integration tests and CI coverage for Python 3.12–3.14, Redis, SQLite, PostgreSQL, and MySQL, plus stubbed SQS API tests.
+
+### Fixed
+
+- Remote pause, continue, and terminate commands now reach the master. Termination exits the full process tree so a process manager can restart it; dashboard status follows the requested state.
+- Pausing drains current jobs and stops intake. Worker shutdown and memory accounting include TaskIQ child processes, and replacements wait for draining workers to release capacity.
+- Crashed supervisor loops clean up their workers and stop the master. Shared configuration is no longer mutated when creating supervisors.
+- Autoscaling uses bounded integer allocations, reserves each queue's minimum, and accounts correctly for draining workers and queues without runtime history. Invalid limits fail at configuration time.
+- Manual batch retries reopen one failed slot, reject duplicate claims, and restore the slot if dispatch fails. Batch details show stored job failures instead of placeholder data.
+- Queue purge clears the selected Redis, database, or SQS queue before removing its dashboard history. Failed dispatches no longer leave phantom pending retries.
+- Retry decoding rejects executable pickle globals; worker timing entries are cleared even when metadata writes fail.
+- Queue snapshots calculate wait time before resetting runtime counters, preserving meaningful wait history. Snapshot retention documentation now correctly describes a count of snapshots.
+- Monitored job records and tag indexes follow their retention limits. Workers recover job metadata after an enqueue-side Redis failure, and wait alerts report the correct queue connection.
+- The master memory limit no longer restarts healthy worker pools based on their combined memory usage.
+- Supervisor queue assignments now survive application environment loading, including existing configurations that select `QUEUE_NAME`.
+- Failed attempts awaiting automatic retry no longer appear as permanent failures. Successful completion removes stale failure references.
+- Dashboard retries reset the attempt counter and preserve typed job labels.
+- SQS dashboard retries return to the original queue, including FIFO queues, without changing the application's shared broker.
+- Queue names, connection names, backlog, and autoscaling now follow the actual job broker, including a separate Redis queue connection. Queue-inspection failures no longer look like empty queues.
+- Horizon commands use the registered Alata application and active environment, supporting custom configuration packages. Invalid worker connections and missing supervisor layouts fail before workers start.
+- Console commands release Redis sockets before closing their event loop, allowing repeated scheduled invocations.
+- Task-specific retry exception filters are reflected in pending and failed status. SQS routing and dashboard retries support the current adapter's queue configuration.
+
+### Changed
+
+- Requires Alata 0.12.0.1 or later in the 0.12 series and Python 3.12 or later. TaskIQ 0.13.x and taskiq-aio-sqs 2.1.1 or later in the 2.1 series are the supported queue integration ranges.
+
 ## [0.1.3] - 2026-07-27
 
 ### Added

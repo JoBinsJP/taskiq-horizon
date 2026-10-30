@@ -402,3 +402,40 @@ class TestRedisTagRepository:
 
         second_page = await job_repo.get_jobs_by_tag("paged", 1)
         assert [job["id"] for job in second_page] == ["page-job-001"]
+
+
+@pytest.mark.asyncio
+async def test_monitored_tag_indexes_are_trimmed(redis, config):
+    from taskiq_horizon.repositories.redis_tag_repository import RedisTagRepository
+
+    jobs = RedisJobRepository(redis, config)
+    tags = RedisTagRepository(redis, config)
+    await tags.add("new", ["billing", "failed:billing"])
+    for tag in ["billing", "failed:billing"]:
+        key = f"{config.prefix}tags:{tag}"
+        await redis.zadd(key, {"expired": -(time.time() - 1000)})
+        assert await redis.ttl(key) > 0
+    await jobs.trim_monitored_jobs()
+    assert await tags.count("billing") == 1
+    assert await tags.count("failed:billing") == 1
+
+
+@pytest.mark.asyncio
+async def test_queue_snapshot_computes_wait_before_resetting_runtime(redis, config):
+    from unittest.mock import AsyncMock
+
+    from taskiq_horizon.wait_time import WaitTimeCalculator
+
+    metrics = RedisMetricsRepository(redis, config)
+    metrics.set_wait_time_calculator(
+        WaitTimeCalculator(
+            metrics,
+            queue_length_fetcher=AsyncMock(return_value=10),
+            supervisor_fetcher=AsyncMock(return_value=[{"processes": {"default": 2}}]),
+        )
+    )
+    await metrics.increment_queue("default", 100)
+    await metrics.snapshot()
+    snapshots = await metrics.snapshots_for_queue("default")
+    assert snapshots[0]["wait"] == 0.5
+    assert snapshots[0]["runtime"] == 100

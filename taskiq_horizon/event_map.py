@@ -19,7 +19,6 @@ from taskiq_horizon.events import (
 )
 from taskiq_horizon.listeners.expire_supervisors import ExpireSupervisorsListener
 from taskiq_horizon.listeners.monitor_master_memory import MonitorMasterSupervisorMemoryListener
-from taskiq_horizon.listeners.monitor_supervisor_memory import MonitorSupervisorMemoryListener
 from taskiq_horizon.listeners.monitor_wait_times import MonitorWaitTimesListener
 from taskiq_horizon.listeners.send_notification import SendNotificationListener
 from taskiq_horizon.listeners.trim_failed_jobs import TrimFailedJobsListener
@@ -46,7 +45,7 @@ def register_default_listeners(
         MasterSupervisorLooped => [TrimRecentJobs, TrimFailedJobs,
                                    TrimMonitoredJobs, ExpireSupervisors,
                                    MonitorMasterSupervisorMemory]
-        SupervisorLooped       => [MonitorWaitTimes, MonitorSupervisorMemory]
+        SupervisorLooped       => [MonitorWaitTimes]
         LongWaitDetected       => [SendNotification]
     """
 
@@ -85,11 +84,9 @@ def register_default_listeners(
             MonitorWaitTimesListener(wait_time_calculator, dispatcher, config).handle,
         )
 
-    # Monitor child supervisor memory usage
-    dispatcher.listen(
-        SupervisorLooped,
-        MonitorSupervisorMemoryListener(dispatcher, memory_limit_mb=memory_limit).handle,
-    )
+    # Worker memory is enforced per process tree by ProcessPool.monitor.
+    # memory_limit belongs to the master; applying it to the sum of healthy
+    # workers creates a restart loop as otherwise-valid pools scale up.
 
     # ── LongWaitDetected listeners ───────────────────────────────────────
     dispatcher.listen(

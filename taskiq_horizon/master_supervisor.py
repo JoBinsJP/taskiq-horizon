@@ -18,6 +18,7 @@ import logging
 import os
 import signal
 import socket
+from dataclasses import replace
 
 from taskiq_horizon.autoscaler import AutoScaler
 from taskiq_horizon.config import HorizonConfig
@@ -83,8 +84,7 @@ class MasterSupervisor:
             for name, opts in env_config.items():
                 # Upstream prefixes the supervisor name with the Master's name
                 # to prevent collision when multiple masters are running.
-                opts.name = f"{self.name}:{name}"
-                opts_to_use.append(opts)
+                opts_to_use.append(replace(opts, name=f"{self.name}:{name}"))
 
         for opts in opts_to_use:
             opts.broker_path = opts.broker_path or ""
@@ -97,6 +97,7 @@ class MasterSupervisor:
                 command_queue=self.command_queue,
                 dispatcher=dispatcher,
                 autoscaler=autoscaler,
+                environment=self.environment,
             )
             self.supervisors.append(sup)
 
@@ -108,6 +109,7 @@ class MasterSupervisor:
         self.should_quit = False
         self._pending_signals: list[str] = []
         self._supervisor_tasks: list[asyncio.Task] = []
+        self._signal_handlers: dict[int, object] = {}
 
         # Register default event listeners
         register_default_listeners(
@@ -144,6 +146,16 @@ class MasterSupervisor:
                 # 1. Process buffered signals
                 self._process_pending_signals()
 
+                await self._process_commands()
+                if not self.running:
+                    break
+
+                # A crashed child must not leave a healthy-looking master.
+                for task in self._supervisor_tasks:
+                    if task.done():
+                        task.result()
+                        raise RuntimeError(f"Supervisor stopped unexpectedly: {task.get_name()}")
+
                 # 2. Heartbeat to Redis
                 await self._heartbeat()
 
@@ -177,18 +189,41 @@ class MasterSupervisor:
         def _buffer_signal(signal_name: str):
             self._pending_signals.append(signal_name)
 
-        try:
-            loop.add_signal_handler(signal.SIGTERM, lambda: _buffer_signal("terminate"))
-            loop.add_signal_handler(signal.SIGINT, lambda: _buffer_signal("terminate"))
-        except NotImplementedError:
-            pass  # Windows
+        for signal_name, command in (
+            ("SIGTERM", "terminate"),
+            ("SIGINT", "terminate"),
+            ("SIGUSR1", "restart"),
+            ("SIGUSR2", "pause"),
+            ("SIGCONT", "continue"),
+        ):
+            number = getattr(signal, signal_name, None)
+            if number is None:
+                continue
+            try:
+                previous = signal.getsignal(number)
+                loop.add_signal_handler(number, _buffer_signal, command)
+                self._signal_handlers[number] = previous
+            except (NotImplementedError, RuntimeError, OSError, ValueError):
+                pass
 
+    async def _process_commands(self) -> None:
         try:
-            loop.add_signal_handler(signal.SIGUSR1, lambda: _buffer_signal("restart"))
-            loop.add_signal_handler(signal.SIGUSR2, lambda: _buffer_signal("pause"))
-            loop.add_signal_handler(signal.SIGCONT, lambda: _buffer_signal("continue"))
-        except (NotImplementedError, AttributeError, OSError):
-            pass  # Windows or restricted environments
+            commands = await self.command_queue.pending(self.name)
+        except Exception:
+            logger.exception("Failed to read master commands")
+            return
+        handlers = {
+            "pause": self._pause,
+            "continue": self._continue,
+            "terminate": self._terminate,
+            "restart": self._restart,
+        }
+        for command in commands:
+            handler = handlers.get(command.get("command"))
+            if handler:
+                handler()
+                if not self.running:
+                    break
 
     def _process_pending_signals(self) -> None:
         """Process buffered signals — deferred, matching the upstream signal handling."""
@@ -206,9 +241,11 @@ class MasterSupervisor:
     def _terminate(self) -> None:
         logger.info("MasterSupervisor received terminate signal.")
         self.running = False
+        self.working = False
 
     def _restart(self) -> None:
         logger.info("MasterSupervisor received restart signal.")
+        self.working = True
         for supervisor in self.supervisors:
             supervisor.restart()
 
@@ -253,6 +290,8 @@ class MasterSupervisor:
 
     async def _shutdown(self) -> None:
         """Gracefully shut down all supervisors and clean up Redis."""
+        self.running = False
+        self.working = False
         logger.info(f"MasterSupervisor '{self.name}' shutting down...")
 
         # Terminate all child supervisors
@@ -266,7 +305,7 @@ class MasterSupervisor:
         # Unregister from Redis
         try:
             pipe = self.redis.pipeline()
-            pipe.delete(f"{self.config.prefix}master:{self.name}")
+            pipe.delete(f"{self.config.prefix}master:{self.name}", f"{self.config.prefix}commands:{self.name}")
             pipe.zrem(f"{self.config.prefix}masters", self.name)
             for sup in self.supervisors:
                 pipe.delete(f"{self.config.prefix}supervisor:{sup.name}")
@@ -275,6 +314,11 @@ class MasterSupervisor:
         except Exception:
             pass
 
+        loop = asyncio.get_running_loop()
+        for number, previous in self._signal_handlers.items():
+            loop.remove_signal_handler(number)
+            signal.signal(number, previous)
+        self._signal_handlers.clear()
         logger.info(f"MasterSupervisor '{self.name}' has stopped.")
 
     # ── Status ───────────────────────────────────────────────────────────

@@ -183,15 +183,25 @@ class RedisJobRepository(JobRepository):
             await pipe.execute()
 
     async def reserved(self, connection: str, queue: str, payload: TaskPayload) -> None:
-        now_str = str(time.time())
-        await self.redis.hset(
-            self._key(payload.id()),
-            mapping={
-                "status": "reserved",
-                "updated_at": now_str,
-                "reserved_at": now_str,
-            },
-        )
+        now = time.time()
+        async with self.redis.pipeline() as pipe:
+            pipe.zadd(self._key("pending_jobs"), {payload.id(): -now}, nx=True)
+            pipe.zadd(self._key("recent_jobs"), {payload.id(): -now}, nx=True)
+            pipe.hset(
+                self._key(payload.id()),
+                mapping={
+                    "id": payload.id(),
+                    "name": payload.display_name(),
+                    "connection": connection,
+                    "queue": queue,
+                    "payload": payload.value,
+                    "status": "reserved",
+                    "updated_at": str(now),
+                    "reserved_at": str(now),
+                },
+            )
+            pipe.expire(self._key(payload.id()), self.config.trim.pending * 60)
+            await pipe.execute()
 
     async def released(self, connection: str, queue: str, payload: TaskPayload, delay: int = 0) -> None:
         await self.redis.hset(
@@ -236,11 +246,17 @@ class RedisJobRepository(JobRepository):
                 self._store_job_reference(pipe, "completed_jobs", payload.id())
 
             self._remove_job_reference(pipe, "pending_jobs", payload.id())
+            self._remove_job_reference(pipe, "failed_jobs", payload.id())
+            self._remove_job_reference(pipe, "recent_failed_jobs", payload.id())
 
             job_key = self._key(payload.id())
+            pipe.hdel(job_key, "exception", "context", "failed_at")
             pipe.hset(
                 job_key,
                 mapping={
+                    "id": payload.id(),
+                    "name": payload.display_name(),
+                    "payload": payload.value,
                     "status": "completed",
                     "completed_at": str(time.time()),
                 },
@@ -290,6 +306,12 @@ class RedisJobRepository(JobRepository):
     async def trim_monitored_jobs(self) -> None:
         score = (time.time() - (self.config.trim.monitored * 60)) * -1
         await self.redis.zremrangebyscore(self._key("monitored_jobs"), score, "+inf")
+        async for key in self.redis.scan_iter(match=self._key("tags:*"), count=100):
+            decoded = key.decode() if isinstance(key, bytes) else key
+            minutes = (
+                self.config.trim.failed if decoded.startswith(self._key("tags:failed:")) else self.config.trim.monitored
+            )
+            await self.redis.zremrangebyscore(key, -(time.time() - minutes * 60), "+inf")
 
     async def find_failed(self, task_id: str) -> dict[str, Any] | None:
         jobs = await self.get_jobs([task_id])

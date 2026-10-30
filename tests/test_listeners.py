@@ -214,3 +214,17 @@ class TestMonitorSupervisorMemoryListener:
             await listener.handle(SupervisorLooped(supervisor=supervisor))
 
         pool.restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_wait_alerts_preserve_queue_name_and_backend_connection(config):
+    from taskiq_horizon.listeners.monitor_wait_times import MonitorWaitTimesListener
+
+    wait = SimpleNamespace(
+        connection="database", metrics_repo=None, calculate=AsyncMock(return_value={"tenant:mail": 100})
+    )
+    dispatcher = AsyncMock()
+    await MonitorWaitTimesListener(wait, dispatcher, config).handle(SupervisorLooped(supervisor=None))
+    event = dispatcher.fire.call_args.args[0]
+    assert event.connection == "database"
+    assert event.queue == "tenant:mail"

@@ -1,133 +1,94 @@
 # Installation
 
-TaskIQ Horizon currently relies on Redis for its dashboard state, workload inspection, metrics, and job data.
+Horizon supports Alata 0.12.0.1 or later in the 0.12 series with TaskIQ 0.13.x on Python 3.12–3.14. Its process manager runs on Linux and macOS. Redis stores dashboard history, metrics, and supervisor commands; jobs may use Redis, the database queue, or SQS.
 
-You may still attach the middleware layer to any TaskIQ broker, but the production-ready Horizon supervisor and dashboard path is Redis-backed today.
-
-To install the package into your project, use pip:
+The compatibility update and its Alata patch are unreleased. Install both updated checkouts into your Alata application:
 
 ```bash
-pip install taskiq-horizon
+uv add --editable ../alata-core ../taskiq-horizon
 ```
 
-*(Note: If you are using this locally in editable mode, you can install it via `uv pip install -e path/to/taskiq-horizon`)*
+## Configure Horizon
 
-## Basic Setup
-
-Because TaskIQ Horizon integrates directly with FastAPI (or any ASGI app) to serve its dashboard, the setup involves two parts: **1) The Host App Configuration** and **2) The Supervisor Process**.
-
-### 1. The Configuration File
-
-Create a `horizon.py` configuration file in your host application to define how Horizon should connect to Redis and how it should behave.
+Create `config/horizon.py` (use your application's configuration package if it has another name):
 
 ```python
-# config/horizon.py
-from taskiq_horizon.config import HorizonConfig, TrimSettings
+from taskiq_horizon.config import HorizonConfig
 from taskiq_horizon.supervisor import SupervisorOptions
-from myapp.settings import settings
+from config.settings import settings
 
 horizon_config = HorizonConfig(
     prefix="myapp-horizon:",
     redis_url=settings.REDIS_URL,
     environments={
-        "production": {
+        "local": {
             "supervisor-1": SupervisorOptions(
-                broker_path="myapp.broker:broker",
+                broker_path="bootstrap.broker:broker",
                 queue="default,high,low",
+                worker_args=[
+                    "--max-async-tasks",
+                    "25",
+                ],
                 min_processes=1,
-                max_processes=10,
-                balance="auto",
-            )
-        }
+                max_processes=3,
+            ),
+        },
     },
-    trim=TrimSettings(
-        recent=60,         # Keep recent jobs for 1 hour
-        pending=60,        # Keep pending jobs for 1 hour
-        completed=60,      # Keep completed jobs for 1 hour
-        failed=10080,      # Keep failed jobs for 7 days
-    ),
-    waits={"default": 60, "high": 30},
 )
 ```
 
-### 2. Mounting the Dashboard
+Add a supervisor layout for every environment where you run Horizon. The active Alata environment selects the layout, including when you use `--env`.
 
-In your FastAPI lifespan or application factory, you need to register the Horizon services into a Dependency Injection container, attach the middleware to your broker, and mount the routes:
+## Register the provider
 
-```python
-from fastapi import FastAPI
-import redis.asyncio as aioredis
-from taskiq_horizon.service_provider import register_services, mount_dashboard
-from config.horizon import horizon_config
-from myapp.broker import broker
-from my_di_container import container  # Your DI container
-
-app = FastAPI()
-
-# 1. Bind the config and Redis connection to the container
-container.singleton("horizon.config", lambda: horizon_config)
-container.singleton("horizon.redis", lambda: aioredis.from_url(horizon_config.redis_url))
-
-# 2. Register Horizon services (repositories, wait time calculators, etc.)
-register_services(container)
-
-# 3. Attach Horizon's tracking middleware to your TaskIQ broker
-middleware = container.make("horizon.middleware")
-broker.add_middlewares(middleware)
-
-# 4. Mount the dashboard routes
-mount_dashboard(app, container)
-```
-
-### 3. Running the Supervisor
-
-Instead of starting standard TaskIQ workers natively, you boot the **TaskIQ Horizon Master Supervisor**. This daemon orchestrates all child supervisors and child worker processes dynamically.
-
-You can create a standalone entry point for it:
+Add the package provider to `bootstrap/providers.py`, after the framework queue provider:
 
 ```python
-# run_horizon.py
-import asyncio
-import logging
-import redis.asyncio as aioredis
-from taskiq_horizon.master_supervisor import MasterSupervisor
-from taskiq_horizon.event_dispatcher import EventDispatcher
-from my_di_container import container
-from myapp.settings import settings
+from taskiq_horizon.alata_provider import HorizonProvider
 
-async def run():
-    logging.basicConfig(level=logging.INFO)
-
-    master = MasterSupervisor(
-        config=container.make("horizon.config"),
-        redis=aioredis.from_url(container.make("horizon.config").redis_url),
-        dispatcher=EventDispatcher(),
-        job_repo=container.make("horizon.jobs"),
-        wait_time_calculator=container.make("horizon.wait_time"),
-        environment=settings.ENVIRONMENT,
-    )
-    await master.monitor()
-
-if __name__ == "__main__":
-    asyncio.run(run())
+PROVIDERS = [
+    # Your other application providers...
+    HorizonProvider,
+]
 ```
 
-Run this script to start processing jobs and watch them appear in the dashboard!
+The provider reads `horizon_config`, attaches job tracking, registers the console commands, and serves the dashboard at `/horizon`. To supply configuration directly, use `(HorizonProvider, horizon_config)` in the provider list.
 
-## Quick UI Smoke Test
-
-If you only want to verify that the packaged dashboard boots correctly from this repository checkout, you can use the included smoke app:
+## Run Horizon
 
 ```bash
-cd taskiq-horizon
-./.venv/bin/python smoke_dashboard.py
+./alata horizon
+./alata horizon:pause
+./alata horizon:continue
+./alata horizon:terminate
 ```
 
-Then open `http://127.0.0.1:8000/horizon`.
+Schedule `horizon:snapshot` every five minutes to populate historical charts:
 
-Environment variables you can override:
+```python
+schedule.command("horizon:snapshot").every_five_minutes()
+```
 
-- `HORIZON_REDIS_URL` defaults to `redis://127.0.0.1:6379/0`
-- `HORIZON_PATH` defaults to `horizon`
-- `HORIZON_PROXY_PATH` defaults to an empty string
-- `HORIZON_PREFIX` defaults to `horizon:`
+## Queue connections
+
+| Job connection | Backlog used for workload and autoscaling |
+| --- | --- |
+| Redis | Pending jobs on the queue broker's Redis connection. Horizon's history may use a separate Redis instance or database. |
+| Database | Runnable jobs in the configured queue table, including expired reservations. PostgreSQL, MySQL, and SQLite are supported. Delayed jobs and active reservations are excluded. |
+| SQS | SQS's approximate visible-message count. Use `auto` or `simple` balancing for multiple queues; each worker consumes one queue. |
+
+`sync` and `null` run without an external worker queue. Horizon refuses to start workers for these connections.
+
+## Protect the dashboard
+
+The dashboard and JSON API have no built-in authentication. Protect the entire configured Horizon path with your application's authorization middleware or an authenticating reverse proxy before exposing it to other users.
+
+## Local dashboard preview
+
+From the Horizon checkout:
+
+```bash
+python smoke_dashboard.py
+```
+
+Open `http://127.0.0.1:8000/horizon`. `HORIZON_REDIS_URL`, `HORIZON_PATH`, `HORIZON_PROXY_PATH`, and `HORIZON_PREFIX` customize this preview.

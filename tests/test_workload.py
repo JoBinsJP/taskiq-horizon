@@ -141,8 +141,8 @@ class TestWaitTimeCalculator:
         assert result == 1.0
 
     @pytest.mark.asyncio
-    async def test_queue_length_fetcher_exception_returns_zero(self):
-        """If the queue length fetcher raises, return 0 gracefully."""
+    async def test_queue_length_fetcher_failure_does_not_report_empty_queue(self):
+        """An outage must not tell the autoscaler to shrink a busy queue."""
 
         async def broken_fetcher(q):
             raise ConnectionError("Redis down")
@@ -150,8 +150,8 @@ class TestWaitTimeCalculator:
         metrics = FakeMetrics(queues=["default"], runtimes={"default": 100.0})
         calc = WaitTimeCalculator(metrics, queue_length_fetcher=broken_fetcher)
 
-        result = await calc.calculate()
-        assert result["default"] == 0.0
+        with pytest.raises(ConnectionError, match="Redis down"):
+            await calc.calculate()
 
 
 # ── RedisWorkloadRepository Tests ────────────────────────────────────────────

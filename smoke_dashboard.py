@@ -12,8 +12,9 @@ Or with reload:
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any, Callable
+from typing import Any
 
 import redis.asyncio as aioredis
 import uvicorn

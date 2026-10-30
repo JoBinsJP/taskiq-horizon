@@ -45,7 +45,7 @@ class TestEventMap:
 
         assert dispatcher.has_listeners(SupervisorLooped)
         # 1 wait time listener + 1 memory listener = 2
-        assert len(dispatcher._listeners[SupervisorLooped]) == 2
+        assert len(dispatcher._listeners[SupervisorLooped]) == 1
 
     def test_registers_long_wait_detected_listener(self, dispatcher, config):
         """LongWaitDetected should always have the notification listener."""
@@ -68,8 +68,7 @@ class TestEventMap:
         assert dispatcher.has_listeners(MasterSupervisorLooped)
         assert len(dispatcher._listeners[MasterSupervisorLooped]) == 1
 
-        assert dispatcher.has_listeners(SupervisorLooped)
-        assert len(dispatcher._listeners[SupervisorLooped]) == 1
+        assert not dispatcher.has_listeners(SupervisorLooped)
 
         assert dispatcher.has_listeners(LongWaitDetected)
 

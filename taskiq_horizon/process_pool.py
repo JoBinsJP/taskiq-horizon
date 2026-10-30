@@ -30,15 +30,19 @@ class ProcessPool:
         broker_path: str,
         queue: str = "default",
         worker_args: list[str] | None = None,
-        queue_env_var: str = "QUEUE_NAME",
+        queue_env_var: str = "ALATA_WORKER_QUEUE",
+        environment: str | None = None,
     ) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
         self.queue_env_var = queue_env_var
+        self.environment = environment
         self.workers: list[WorkerProcess] = []
         self.terminating: list[tuple[WorkerProcess, float]] = []  # (worker, terminated_at)
-        self.paused = False  # True while workers are suspended via SIGSTOP
+        self.paused = False
+        self._resume_target = 0
+        self._target_count = 0
 
     @property
     def total_process_count(self) -> int:
@@ -52,21 +56,27 @@ class ProcessPool:
 
     def scale(self, target: int) -> None:
         """Scale the pool to the target number of active workers."""
+        target = max(0, int(target))
+        if self.paused:
+            self._resume_target = target
+            return
+        self._target_count = target
         current = len(self.workers)
 
         if target > current:
-            self._scale_up(target - current)
+            available = max(0, target - self.total_process_count)
+            if available:
+                self._scale_up(available)
         elif target < current:
             self._scale_down(current - target)
 
     def _scale_up(self, count: int) -> None:
         """Spawn `count` new workers."""
         for _ in range(count):
-            worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
+            worker = WorkerProcess(
+                self.broker_path, self.queue, self.worker_args, self.queue_env_var, environment=self.environment
+            )
             worker.start()
-            if self.paused:
-                # Workers spawned while the pool is paused must not consume jobs.
-                worker.pause()
             self.workers.append(worker)
         logger.info(f"Pool [{self.queue}] scaled UP by {count} → {len(self.workers)} active")
 
@@ -102,6 +112,7 @@ class ProcessPool:
 
         for worker, terminated_at in self.terminating:
             if not worker.is_alive():
+                worker.kill()  # Reap any children left after an unexpected parent exit.
                 logger.debug(f"Worker PID={worker.pid} drained cleanly.")
                 continue
 
@@ -118,24 +129,21 @@ class ProcessPool:
         self.terminating = still_terminating
 
     def pause(self) -> None:
-        """
-        Pause the pool — suspend every active worker with SIGSTOP.
-
-        Terminating workers are left alone so they can finish draining.
-        Matches the upstream pause semantics: paused workers stop
-        consuming jobs entirely.
-        """
+        """Stop intake while allowing running jobs and acknowledgements to finish."""
+        if self.paused:
+            return
+        self._resume_target = max(self._target_count, len(self.workers))
         self.paused = True
-        for worker in self.workers:
-            worker.pause()
-        logger.info(f"Pool [{self.queue}] paused ({len(self.workers)} workers stopped)")
+        self.terminate_all()
+        logger.info(f"Pool [{self.queue}] paused; current jobs are draining")
 
     def resume(self) -> None:
-        """Resume the pool — wake every active worker with SIGCONT."""
+        """Restore the pool size after a pause."""
+        if not self.paused:
+            return
         self.paused = False
-        for worker in self.workers:
-            worker.resume()
-        logger.info(f"Pool [{self.queue}] resumed ({len(self.workers)} workers continued)")
+        self.scale(self._resume_target)
+        logger.info(f"Pool [{self.queue}] resumed")
 
     def monitor(self, memory_limit_mb: int = 128) -> None:
         """
@@ -144,39 +152,34 @@ class ProcessPool:
         Also checks memory usage and terminates workers that exceed
         the memory limit (mirrors ProcessInspector).
         """
+        if self.paused:
+            return
+        target = max(self._target_count, len(self.workers))
         alive = []
         for worker in self.workers:
             if not worker.is_alive():
+                worker.kill()
                 logger.warning(f"Worker PID={worker.pid} died unexpectedly. Respawning...")
-                new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
-                new_worker.start()
-                if self.paused:
-                    new_worker.pause()
-                alive.append(new_worker)
                 continue
 
-            # Memory check
             mem = worker.memory_usage_mb()
             if mem > 0 and mem > memory_limit_mb:
                 logger.warning(
-                    f"Worker PID={worker.pid} exceeds memory limit ({mem:.1f}MB > {memory_limit_mb}MB). Terminating..."
+                    f"Worker PID={worker.pid} exceeds memory limit ({mem:.1f}MB > {memory_limit_mb}MB). Draining..."
                 )
                 worker.terminate()
                 self.terminating.append((worker, time.time()))
-                # Respawn immediately
-                new_worker = WorkerProcess(self.broker_path, self.queue, self.worker_args, self.queue_env_var)
-                new_worker.start()
-                if self.paused:
-                    new_worker.pause()
-                alive.append(new_worker)
                 continue
-
             alive.append(worker)
 
         self.workers = alive
+        # Retain the target while draining, but never accumulate replacement
+        # generations if an oversized worker takes time to finish its job.
+        self.scale(target)
 
     def terminate_all(self) -> None:
         """Gracefully terminate all workers (for shutdown)."""
+        self._target_count = 0
         now = time.time()
         for worker in self.workers:
             worker.terminate()
@@ -185,7 +188,7 @@ class ProcessPool:
 
     def restart(self) -> None:
         """Restart the pool while preserving its active worker count."""
-        current = self.active_process_count
+        current = max(self._target_count, self.active_process_count)
         self.terminate_all()
         self.scale(current)
 
@@ -197,3 +200,4 @@ class ProcessPool:
             worker.kill()
         self.workers = []
         self.terminating = []
+        self._target_count = 0

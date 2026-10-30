@@ -34,7 +34,12 @@ class AutoScaler:
             await self._time_to_clear_per_queue(supervisor, pools),
         )
 
-        for queue, worker_target in workers.items():
+        # Release surplus capacity first. Draining processes still count
+        # against the global cap until they exit.
+        supervisor.prune_terminating_processes()
+        ordered = sorted(workers, key=lambda queue: workers[queue] - pools[queue].active_process_count)
+        for queue in ordered:
+            worker_target = workers[queue]
             self._scale_pool(supervisor, pools[queue], worker_target)
 
     def _pools_by_queue(self, supervisor: Supervisor) -> dict[str, ProcessPool]:
@@ -66,73 +71,63 @@ class AutoScaler:
         supervisor: Supervisor,
         queues: dict[str, dict[str, float]],
     ) -> dict[str, float]:
-        max_processes = supervisor.options.max_processes
-        min_processes = supervisor.options.min_processes
-        queue_count = max(1, len(supervisor.process_pools))
+        maximum = supervisor.options.max_processes
+        minimum = supervisor.options.min_processes
+        if not supervisor.options.balancing:
+            return {queue: min(maximum, max(minimum, int(info["size"]))) for queue, info in queues.items()}
+        if not supervisor.options.auto_scaling:
+            weights = dict.fromkeys(queues, 1.0)
+        elif self._auto_scale_by_number_of_jobs(supervisor.options):
+            weights = {queue: info["size"] for queue, info in queues.items()}
+        else:
+            # A new queue has no runtime history yet. Give it a provisional
+            # runtime so it can earn capacity, including with min_processes=0.
+            known = [info["time"] / info["size"] for info in queues.values() if info["time"] and info["size"]]
+            runtime = sum(known) / len(known) if known else 1.0
+            weights = {queue: info["time"] or info["size"] * runtime for queue, info in queues.items()}
+        if not sum(weights.values()):
+            return dict.fromkeys(queues, minimum)
 
-        time_to_clear_all = sum(queue["time"] for queue in queues.values())
-        total_jobs = sum(queue["size"] for queue in queues.values())
+        # Constrained proportional allocation: fix small shares at the
+        # per-queue minimum, then redistribute the remaining capacity.
+        shares: dict[str, float] = {}
+        remaining = dict(weights)
+        capacity = maximum
+        while remaining:
+            total = sum(remaining.values())
+            proposed = {
+                queue: capacity * weight / total if total else capacity / len(remaining)
+                for queue, weight in remaining.items()
+            }
+            below_minimum = [queue for queue, share in proposed.items() if share < minimum]
+            if not below_minimum:
+                shares.update(proposed)
+                break
+            for queue in below_minimum:
+                shares[queue] = minimum
+                capacity -= minimum
+                del remaining[queue]
 
-        workers: dict[str, float] = {}
-
-        for queue, time_to_clear in queues.items():
-            if not supervisor.options.balancing:
-                target = min(max_processes, max(min_processes, int(time_to_clear["size"])))
-            elif time_to_clear_all > 0 and supervisor.options.auto_scaling:
-                if self._auto_scale_by_number_of_jobs(supervisor.options):
-                    ratio = time_to_clear["size"] / total_jobs if total_jobs > 0 else 0.0
-                else:
-                    ratio = time_to_clear["time"] / time_to_clear_all
-                target = ratio * max_processes
-            elif time_to_clear_all == 0 and supervisor.options.auto_scaling:
-                target = max_processes if time_to_clear["size"] else min_processes
-            else:
-                target = max_processes / queue_count
-
-            workers[queue] = target
-
-        return dict(sorted(workers.items(), key=lambda item: item[1]))
+        # Largest remainders make integer targets add up to exactly the cap;
+        # rounding every queue up causes persistent starvation of later pools.
+        targets = {queue: math.floor(share) for queue, share in shares.items()}
+        for queue in sorted(shares, key=lambda q: shares[q] - targets[q], reverse=True)[
+            : maximum - sum(targets.values())
+        ]:
+            targets[queue] += 1
+        return targets
 
     def _scale_pool(self, supervisor: Supervisor, pool: ProcessPool, workers: float) -> None:
-        supervisor.prune_terminating_processes()
-
-        total_process_count = pool.total_process_count
-        desired_process_count = math.ceil(workers)
-        pool_count = max(1, len(supervisor.process_pools))
-
-        if desired_process_count > total_process_count:
-            max_up_shift = min(
-                max(0, supervisor.options.max_processes - supervisor.total_process_count),
-                supervisor.options.balance_max_shift,
-            )
-
-            target = min(
-                total_process_count + max_up_shift,
-                max(
-                    supervisor.options.min_processes,
-                    supervisor.options.max_processes - ((pool_count - 1) * supervisor.options.min_processes),
-                ),
-                desired_process_count,
-            )
-
-            if target != total_process_count:
-                pool.scale(target)
-            return
-
-        if desired_process_count < total_process_count:
-            max_down_shift = min(
-                max(0, supervisor.total_process_count - supervisor.options.min_processes),
-                supervisor.options.balance_max_shift,
-            )
-
-            target = max(
-                total_process_count - max_down_shift,
-                supervisor.options.min_processes,
-                desired_process_count,
-            )
-
-            if target != total_process_count:
-                pool.scale(target)
+        current = pool.active_process_count
+        desired = int(workers)
+        shift = supervisor.options.balance_max_shift
+        if desired > current:
+            available = max(0, supervisor.options.max_processes - supervisor.total_process_count)
+            target = current + min(desired - current, shift, available)
+        else:
+            target = max(desired, current - shift)
+        if target != current:
+            pool.scale(target)
 
     def _auto_scale_by_number_of_jobs(self, options: SupervisorOptions) -> bool:
         return options.auto_scale_by_num_jobs or options.auto_scaling_strategy == "size"
