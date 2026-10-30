@@ -200,13 +200,13 @@ class RedisMetricsRepository(MetricsRepository):
             await pipe.execute()
 
     async def _store_snapshot_for_queue(self, queue: str, now: int) -> None:
-        data = await self._base_snapshot_data(self._key(f"queue:{queue}"))
         snapshot_key = self._snapshot_key("queue", queue)
         wait = 0.0
 
         if self.wait_time_calculator is not None:
             wait = await self.wait_time_calculator.calculate_for(queue)
 
+        data = await self._base_snapshot_data(self._key(f"queue:{queue}"))
         async with self.redis.pipeline() as pipe:
             pipe.zadd(
                 snapshot_key,

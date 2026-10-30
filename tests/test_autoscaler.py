@@ -158,16 +158,49 @@ async def test_non_balancing_supervisor_respects_max_processes_cap(autoscaler_fa
     assert supervisor.process_pools["default"].active_process_count == 2
 
 
+def test_reject_impossible_per_queue_minimum():
+    with pytest.raises(ValueError, match="max_processes must cover"):
+        MockSupervisor("default,high,low", max_processes=2, min_processes=1)
+
+
 @pytest.mark.asyncio
-async def test_global_max_process_cap_is_respected_across_many_queues(autoscaler_factory):
-    autoscaler = autoscaler_factory(
-        {"default": 100.0, "high": 100.0, "low": 100.0},
-        {"default": 0, "high": 0, "low": 0},
-    )
-    supervisor = MockSupervisor("default,high,low", max_processes=2, min_processes=1, balance="auto")
+async def test_simple_rounding_converges_without_starving_later_queues(autoscaler_factory):
+    scaler = autoscaler_factory({}, {})
+    supervisor = MockSupervisor("a,b,c", max_processes=4, balance="simple", balance_max_shift=1)
+    for _ in range(10):
+        await scaler.scale(supervisor)
+        assert supervisor.total_process_count <= 4
+    assert [p.active_process_count for p in supervisor.process_pools.values()] == [2, 1, 1]
 
-    await autoscaler.scale(supervisor)
 
-    total = sum(pool.active_process_count for pool in supervisor.process_pools.values())
-    assert total == 2
-    assert sorted(pool.active_process_count for pool in supervisor.process_pools.values()) == [0, 1, 1]
+@pytest.mark.asyncio
+async def test_unmeasured_busy_queue_can_scale_from_zero(autoscaler_factory):
+    scaler = autoscaler_factory({"a": 5}, {"a": 10, "b": 10})
+    supervisor = MockSupervisor("a,b", max_processes=4, min_processes=0)
+    await scaler.scale(supervisor)
+    assert [p.active_process_count for p in supervisor.process_pools.values()] == [2, 2]
+
+
+@pytest.mark.asyncio
+async def test_draining_workers_do_not_get_recreated_during_downscale(autoscaler_factory):
+    scaler = autoscaler_factory({}, {})
+    supervisor = MockSupervisor("a", max_processes=5, balance_max_shift=1)
+    pool = supervisor.process_pools["a"]
+    pool.active_process_count = 1
+    pool.terminating_count = 3
+    supervisor.prune_terminating_processes = lambda: None
+    await scaler.scale(supervisor)
+    assert pool.active_process_count == 1
+    assert pool.scale_calls == []
+
+
+@pytest.mark.asyncio
+async def test_scale_up_waits_for_draining_capacity(autoscaler_factory):
+    scaler = autoscaler_factory({}, {"a": 100})
+    supervisor = MockSupervisor("a", max_processes=4)
+    pool = supervisor.process_pools["a"]
+    pool.active_process_count = 1
+    pool.terminating_count = 3
+    supervisor.prune_terminating_processes = lambda: None
+    await scaler.scale(supervisor)
+    assert pool.active_process_count == 1

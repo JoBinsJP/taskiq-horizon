@@ -12,11 +12,19 @@ from taskiq_horizon.supervisor import Supervisor, SupervisorOptions
 
 
 class FakeProcessPool:
-    def __init__(self, broker_path: str, queue: str = "default", worker_args=None, queue_env_var: str = "QUEUE_NAME"):
+    def __init__(
+        self,
+        broker_path: str,
+        queue: str = "default",
+        worker_args=None,
+        queue_env_var: str = "ALATA_WORKER_QUEUE",
+        environment=None,
+    ):
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
         self.queue_env_var = queue_env_var
+        self.environment = environment
         self.workers = 0
         self.terminating = 0
         self.monitor_calls = 0
@@ -245,3 +253,47 @@ class TestSupervisor:
 
         autoscaler.scale.assert_awaited_once_with(sup)
         assert sup._needs_balance is False
+
+
+@pytest.mark.asyncio
+async def test_monitor_exception_still_drains_workers():
+    options = SupervisorOptions(name="cleanup", broker_path="test:broker")
+    queue = AsyncMock()
+    supervisor = Supervisor(options, queue, EventDispatcher())
+    supervisor._process_commands = AsyncMock(side_effect=RuntimeError("failed loop"))
+    with pytest.raises(RuntimeError, match="failed loop"):
+        await supervisor.monitor()
+    assert supervisor.total_process_count == 0
+    assert not supervisor.running
+
+
+def test_manual_scale_cannot_expand_configured_cap():
+    supervisor = Supervisor(SupervisorOptions(max_processes=3), AsyncMock(), EventDispatcher())
+    supervisor.scale(999)
+    assert supervisor.active_process_count == 3
+    assert supervisor.options.max_processes == 3
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"max_processes": 0},
+        {"min_processes": -1},
+        {"balance": "typo"},
+        {"balance_max_shift": 0},
+        {"timeout": 0},
+        {"queue": "a,a"},
+    ],
+)
+def test_invalid_supervisor_config_fails_at_startup(options):
+    with pytest.raises(ValueError):
+        SupervisorOptions(**options)
+
+
+@pytest.mark.asyncio
+async def test_terminated_supervisor_does_not_start_workers():
+    supervisor = Supervisor(SupervisorOptions(), AsyncMock(), EventDispatcher(), autoscaler=AsyncMock())
+    supervisor.terminate()
+    await supervisor.monitor()
+    supervisor.autoscaler.scale.assert_not_called()
+    assert supervisor.total_process_count == 0

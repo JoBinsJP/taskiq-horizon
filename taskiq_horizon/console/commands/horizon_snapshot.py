@@ -1,20 +1,16 @@
-from cleo.commands.command import Command
+from taskiq_horizon.console.command import HorizonCommandBase
 
 
-class HorizonSnapshotCommand(Command):
+class HorizonSnapshotCommand(HorizonCommandBase):
     """Store a snapshot of the queue metrics"""
 
     name = "horizon:snapshot"
     description = "Store a snapshot of the queue metrics"
 
     def handle(self):
-        import asyncio
-
-        from alata.application import boot
-        from alata.container import container
 
         self.line("<info>Taking Horizon metrics snapshot...</info>")
-        boot()
+        container = self.alata_application()
 
         metrics_repo = container.make("horizon.metrics")
         # Building the wait-time calculator wires it into the metrics repository
@@ -25,5 +21,5 @@ class HorizonSnapshotCommand(Command):
         async def run_snapshot():
             await metrics_repo.snapshot()
 
-        asyncio.run(run_snapshot())
+        self.run_async(run_snapshot())
         self.line("<info>Horizon metrics snapshot successfully taken.</info>")

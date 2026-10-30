@@ -4,7 +4,7 @@ TaskIQ Horizon provides a beautiful, real-time dashboard and robust configuratio
 
 Horizon allows you to easily monitor key metrics of your queue system such as job throughput, runtimes, exceptions, and job failures. All of your queue worker configuration is stored in a single, simple configuration file, allowing your configuration to stay in source control where your entire team can collaborate on it.
 
-The current production-ready path is Redis for both queue visibility and Horizon state. When balancing is enabled, Horizon creates one worker pool per queue, matching Laravel Horizon's queue-by-queue balancing model.
+Horizon supports Alata 0.12.0.1 or later in the 0.12 series with TaskIQ 0.13.x and Redis, database, or SQS job queues. Redis stores Horizon history and metrics. When balancing is enabled, Horizon creates one worker pool per queue, matching Laravel Horizon's queue-by-queue balancing model.
 
 ## Features
 

@@ -30,12 +30,14 @@ class WorkerProcess:
         broker_path: str,
         queue: str = "default",
         worker_args: list[str] | None = None,
-        queue_env_var: str = "QUEUE_NAME",
+        queue_env_var: str = "ALATA_WORKER_QUEUE",
+        environment: str | None = None,
     ) -> None:
         self.broker_path = broker_path
         self.queue = queue
         self.worker_args = worker_args or []
         self.queue_env_var = queue_env_var
+        self.environment = environment
         self.process: subprocess.Popen | None = None
         self.pid: int | None = None
         self.stopped = False  # True while suspended via SIGSTOP (paused)
@@ -44,12 +46,13 @@ class WorkerProcess:
         """
         Build the worker subprocess environment.
 
-        TODO: if Horizon grows first-class non-Redis broker support, replace
-        this single env-var hook with a broker-specific worker targeting
-        strategy. SQS, for example, uses different queue selection semantics
-        than Redis' QUEUE_NAME-based multi-queue worker boot.
+        Alata preserves ALATA_WORKER_QUEUE when loading application .env files.
         """
         env = os.environ.copy()
+        if self.environment is not None:
+            env["APP_ENV"] = self.environment
+        env["QUEUE_NAME"] = self.queue
+        env["ALATA_WORKER_QUEUE"] = self.queue
         env[self.queue_env_var] = self.queue
         return env
 
@@ -70,6 +73,7 @@ class WorkerProcess:
             env=self._build_env(),
             stdout=sys.stdout,
             stderr=sys.stderr,
+            start_new_session=True,
         )
         self.pid = self.process.pid
         logger.info(f"Worker process started: PID={self.pid} queue={self.queue}")
@@ -83,7 +87,7 @@ class WorkerProcess:
         """
         if self.is_alive() and self.process:
             try:
-                self.process.send_signal(signal.SIGSTOP)
+                os.killpg(self.pid, signal.SIGSTOP)
                 self.stopped = True
                 logger.debug(f"SIGSTOP sent to worker PID={self.pid}")
             except OSError as e:
@@ -93,7 +97,7 @@ class WorkerProcess:
         """Resume a paused worker with SIGCONT."""
         if self.is_alive() and self.process:
             try:
-                self.process.send_signal(signal.SIGCONT)
+                os.killpg(self.pid, signal.SIGCONT)
                 logger.debug(f"SIGCONT sent to worker PID={self.pid}")
             except OSError as e:
                 logger.warning(f"Failed to resume worker PID={self.pid}: {e}")
@@ -115,26 +119,37 @@ class WorkerProcess:
                 logger.warning(f"Failed to terminate worker PID={self.pid}: {e}")
 
     def kill(self) -> None:
-        """Force-kill the worker immediately."""
-        if self.process and self.process.poll() is None:
+        """Kill the isolated process group, including orphaned TaskIQ children."""
+        if self.pid:
             try:
-                self.process.kill()
-                logger.warning(f"SIGKILL sent to worker PID={self.pid}")
-            except OSError:
+                os.killpg(self.pid, signal.SIGKILL)
+                logger.warning(f"SIGKILL sent to worker group PID={self.pid}")
+            except ProcessLookupError:
                 pass
+            if self.process:
+                try:
+                    self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Worker PID={self.pid} has not exited after SIGKILL")
 
     def is_alive(self) -> bool:
         """Check if the worker process is still running."""
         return self.process is not None and self.process.poll() is None
 
     def memory_usage_mb(self) -> float:
-        """Get the worker's RSS memory usage in megabytes."""
+        """Measure the TaskIQ process tree, including the job executors."""
         if not self.pid:
             return 0.0
         try:
             import psutil
 
             proc = psutil.Process(self.pid)
-            return proc.memory_info().rss / (1024 * 1024)
-        except (ImportError, Exception):
+            total = 0
+            for member in [proc, *proc.children(recursive=True)]:
+                try:
+                    total += member.memory_info().rss
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            return total / (1024 * 1024)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             return 0.0

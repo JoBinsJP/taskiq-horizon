@@ -391,3 +391,42 @@ class TestTaskPayloadAttempts:
         payload = TaskPayload(msg).prepare(config)
 
         assert payload.decoded["attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_recovers_missing_enqueue_metadata(middleware, job_repo, config):
+    from taskiq import TaskiqResult
+
+    message = make_message(task_id="metadata-recovery", labels={"queue_name": "critical"})
+    await middleware.pre_execute(message)
+    pending = await job_repo.get_pending()
+    assert pending[0]["id"] == message.task_id
+    assert pending[0]["queue"] == "critical"
+    await middleware.post_execute(message, TaskiqResult(is_err=False, return_value=None, execution_time=0))
+    assert (await job_repo.get_completed())[0]["name"] == message.task_name
+
+
+@pytest.mark.asyncio
+async def test_monitored_jobs_keep_their_configured_retention(middleware, job_repo, tag_repo, config, redis):
+    from taskiq import TaskiqResult
+
+    config.trim.completed = 1
+    config.trim.monitored = 10
+    await tag_repo.monitor("billing")
+    message = make_message(task_id="monitored", labels={"tags": "billing"})
+    await middleware.pre_send(message)
+    await middleware.pre_execute(message)
+    await middleware.post_execute(message, TaskiqResult(is_err=False, return_value=None, execution_time=0))
+    assert await redis.ttl(job_repo._key("monitored")) > 590
+    assert await redis.zcard(job_repo._key("monitored_jobs")) == 1
+
+
+@pytest.mark.asyncio
+async def test_timers_are_released_after_metadata_write_error(middleware, job_repo):
+    from taskiq import TaskiqResult
+
+    message = make_message()
+    await middleware.pre_execute(message)
+    job_repo.completed = AsyncMock(side_effect=OSError("Redis unavailable"))
+    await middleware.post_execute(message, TaskiqResult(is_err=False, return_value=None, execution_time=0))
+    assert middleware.stopwatches == {}

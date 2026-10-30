@@ -204,8 +204,12 @@ async def test_delete_failed_job_route_removes_failed_job(redis, config):
 
 
 @pytest.mark.asyncio
-async def test_purge_queue_route_removes_pending_jobs(redis, config):
+async def test_purge_queue_route_removes_pending_jobs(redis, config, monkeypatch):
     app = make_app(redis, config)
+    from unittest.mock import AsyncMock, Mock
+
+    backend = Mock(connection="redis", purge=AsyncMock(return_value=1))
+    monkeypatch.setattr("taskiq_horizon.queue_backend.queue_backend", lambda broker: backend)
     await seed_recent_job(app, "purge-default-001")
     message = TaskiqMessage(
         task_id="purge-high-001",
@@ -225,6 +229,7 @@ async def test_purge_queue_route_removes_pending_jobs(redis, config):
 
     pending = await app.state.horizon_job_repo.get_pending()
     assert [job["id"] for job in pending] == ["purge-high-001"]
+    backend.purge.assert_awaited_once_with("default")
 
 
 @pytest.mark.asyncio
@@ -376,3 +381,15 @@ async def test_stats_wait_is_keyed_by_connection_and_queue(redis, config):
 
     assert response.status_code == 200
     assert response.json()["wait"] == {"redis:default": 12.5}
+
+
+@pytest.mark.asyncio
+async def test_batch_detail_uses_real_failed_job_payloads(redis, config):
+    app = make_app(redis, config)
+    app.state.horizon_batch_repo = DummyBatchRepo()
+    await seed_failed_job(app, "f-1")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/api/batches/b-1")
+    failed = response.json()["failedJobs"][0]
+    assert failed["name"] == "memory:write"
+    assert "boom" in failed["exception"]

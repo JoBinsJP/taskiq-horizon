@@ -49,7 +49,28 @@ class SupervisorOptions:
     balance_max_shift: int = 1
     broker_path: str = ""
     worker_args: list[str] = field(default_factory=list)
-    worker_queue_env_var: str = "QUEUE_NAME"
+    worker_queue_env_var: str = "ALATA_WORKER_QUEUE"
+
+    def __post_init__(self) -> None:
+        if self.balance is False:
+            self.balance = "false"
+        if self.balance not in {"auto", "simple", "false"}:
+            raise ValueError("balance must be auto, simple, or false")
+        if self.auto_scaling_strategy not in {"time", "size"}:
+            raise ValueError("auto_scaling_strategy must be time or size")
+        if not self.queue_names or len(set(self.queue_names)) != len(self.queue_names):
+            raise ValueError("Configure distinct, non-empty queue names")
+        for name in ("max_processes", "memory", "timeout", "balance_max_shift"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in ("min_processes", "balance_cooldown"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        pools = len(self.queue_names) if self.balancing else 1
+        if pools * self.min_processes > self.max_processes:
+            raise ValueError("max_processes must cover min_processes for every queue pool")
 
     @property
     def balancing(self) -> bool:
@@ -86,12 +107,14 @@ class Supervisor:
         command_queue: CommandQueue,
         dispatcher: EventDispatcher,
         autoscaler=None,
+        environment: str | None = None,
     ) -> None:
         self.options = options
         self.name = options.name
         self.command_queue = command_queue
         self.dispatcher = dispatcher
         self.autoscaler = autoscaler
+        self.environment = environment
 
         self.process_pools = self._create_process_pools()
         self.pool = next(iter(self.process_pools.values()), None)
@@ -110,6 +133,7 @@ class Supervisor:
                     queue,
                     self.options.worker_args,
                     self.options.worker_queue_env_var,
+                    environment=self.environment,
                 )
                 for queue in queues
             }
@@ -120,6 +144,7 @@ class Supervisor:
                 self.options.queue,
                 self.options.worker_args,
                 self.options.worker_queue_env_var,
+                environment=self.environment,
             )
         }
 
@@ -131,52 +156,62 @@ class Supervisor:
         """
         logger.info(f"Supervisor '{self.name}' starting monitor loop...")
 
-        # Flush stale commands from a previous run
-        await self.command_queue.flush(self.name)
+        try:
+            # Flush stale commands from a previous run
+            await self.command_queue.flush(self.name)
 
-        # Initial scaling mirrors Horizon: supervisors with an autoscaler
-        # immediately scale their pools (per-queue when balancing, a single
-        # pool sized by queue pressure otherwise), while supervisors without
-        # one start scaled to the configured minimum.
-        if self.autoscaler:
-            await self._autoscale(force=True)
-        else:
-            self.scale(self.options.min_processes)
+            # Initial scaling mirrors Horizon: supervisors with an autoscaler
+            # immediately scale their pools (per-queue when balancing, a single
+            # pool sized by queue pressure otherwise), while supervisors without
+            # one start scaled to the configured minimum.
+            if self.running and self.autoscaler:
+                await self._autoscale(force=True)
+            elif self.running:
+                self.scale(self.options.min_processes * len(self.process_pools))
 
-        while self.running:
-            # 1. Consume pending commands
-            await self._process_commands()
+            while self.running:
+                # 1. Consume pending commands
+                await self._process_commands()
 
-            # 2. Run autoscaler (if enabled and not paused). Non-balancing
-            #    supervisors scale their single pool between min_processes and
-            #    max_processes based on queue depth.
-            if self.working and self.autoscaler:
-                await self._autoscale()
+                if not self.running:
+                    break
 
-            # 3. Monitor worker health + memory
-            if self.working:
-                for pool in self.process_pools.values():
-                    pool.monitor(memory_limit_mb=self.options.memory)
+                # 2. Run autoscaler (if enabled and not paused). Non-balancing
+                #    supervisors scale their single pool between min_processes and
+                #    max_processes based on queue depth.
+                if self.working and self.autoscaler:
+                    await self._autoscale()
 
-            # 4. Prune terminating workers
-            self.prune_terminating_processes()
+                # 3. Monitor worker health + memory
+                if self.working:
+                    for pool in self.process_pools.values():
+                        pool.monitor(memory_limit_mb=self.options.memory)
 
-            # 5. Fire SupervisorLooped event
-            await self.dispatcher.fire(SupervisorLooped(supervisor=self))
+                # 4. Prune terminating workers
+                self.prune_terminating_processes()
 
-            # 6. Sleep
-            await asyncio.sleep(1)
+                # 5. Fire SupervisorLooped event
+                await self.dispatcher.fire(SupervisorLooped(supervisor=self))
 
+                # 6. Sleep
+                await asyncio.sleep(1)
+
+        finally:
+            self.running = False
+            self.working = False
+            await self._shutdown()
+
+    async def _shutdown(self) -> None:
         # Cleanup — terminate all workers gracefully
         logger.info(f"Supervisor '{self.name}' shutting down...")
         for pool in self.process_pools.values():
             pool.terminate_all()
 
         # Wait for drain with timeout
-        deadline = time.time() + self.options.timeout
+        deadline = time.monotonic() + self.options.timeout
         while self.total_process_count > 0:
             self.prune_terminating_processes()
-            if time.time() > deadline:
+            if time.monotonic() > deadline:
                 logger.warning("Drain timeout exceeded. Force killing remaining workers.")
                 for pool in self.process_pools.values():
                     pool.kill_all()
@@ -184,7 +219,10 @@ class Supervisor:
             await asyncio.sleep(0.5)
 
         # Flush command queue on exit
-        await self.command_queue.flush(self.name)
+        try:
+            await self.command_queue.flush(self.name)
+        except Exception:
+            logger.exception("Failed to clean up supervisor commands")
         logger.info(f"Supervisor '{self.name}' has stopped.")
 
     async def _process_commands(self) -> None:
@@ -201,7 +239,10 @@ class Supervisor:
 
             handler_cls = COMMAND_MAP.get(cmd_name)
             if handler_cls:
-                handler_cls().process(self, options)
+                try:
+                    handler_cls().process(self, options)
+                except (TypeError, ValueError):
+                    logger.warning("Invalid options for command %s: %r", cmd_name, options)
             else:
                 logger.warning(f"Unknown command: {cmd_name}")
 
@@ -222,8 +263,7 @@ class Supervisor:
 
     def pause(self) -> None:
         """
-        Pause the supervisor — autoscaling stops and every worker process
-        is suspended (SIGSTOP) so no more jobs are consumed until continue.
+        Stop consuming new jobs while allowing in-flight work to drain.
         """
         self.working = False
         for pool in self.process_pools.values():
@@ -231,7 +271,7 @@ class Supervisor:
         logger.info(f"Supervisor '{self.name}' paused.")
 
     def continue_working(self) -> None:
-        """Resume the supervisor — workers are woken (SIGCONT) and start picking up jobs."""
+        """Resume consuming jobs with the previous pool sizes."""
         self.working = True
         for pool in self.process_pools.values():
             pool.resume()
@@ -258,9 +298,8 @@ class Supervisor:
         When balancing is enabled, workers are distributed as evenly as
         possible across the queue-specific pools.
         """
-        target = max(0, int(target))
+        target = min(self.options.max_processes, max(0, int(target)))
         pool_count = max(1, len(self.process_pools))
-        self.options.max_processes = max(self.options.max_processes, target, pool_count)
 
         if pool_count == 1:
             next(iter(self.process_pools.values())).scale(target)
@@ -275,10 +314,13 @@ class Supervisor:
 
     def balance(self, balance: dict[str, int]) -> None:
         """Scale the process pools to the provided per-queue counts."""
+        remaining = self.options.max_processes
         for queue, scale in balance.items():
             pool = self.process_pools.get(queue)
             if pool is not None:
-                pool.scale(max(0, int(scale)))
+                target = min(remaining, max(0, int(scale)))
+                pool.scale(target)
+                remaining -= target
 
     def prune_terminating_processes(self) -> None:
         for pool in self.process_pools.values():

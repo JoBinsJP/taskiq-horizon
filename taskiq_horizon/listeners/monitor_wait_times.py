@@ -47,10 +47,8 @@ class MonitorWaitTimesListener:
                 continue  # disabled for this queue
 
             if wait_seconds > threshold:
-                # Parse connection:queue format
-                parts = queue_key.split(":", 1)
-                connection = parts[0] if len(parts) > 1 else "redis"
-                queue = parts[1] if len(parts) > 1 else parts[0]
+                connection = getattr(self.wait_time, "connection", "redis")
+                queue = queue_key
 
                 await self.dispatcher.fire(
                     LongWaitDetected(

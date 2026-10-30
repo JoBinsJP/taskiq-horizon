@@ -2,7 +2,7 @@
 
 TaskIQ Horizon is designed to maintain high functional and structural parity with [Laravel Horizon](https://horizon.laravel.com/). Instead of running isolated TaskIQ worker CLI commands, Horizon introduces a robust, multi-tier process management architecture.
 
-The production-ready control plane today is Redis-backed. That includes dashboard state, metrics, workload inspection, wait-time calculation, and supervisor heartbeats.
+Redis stores dashboard state, metrics, commands, and supervisor heartbeats. Queue inspection uses a broker-specific adapter: Redis lists, Alata's database queue, or SQS. Workload and autoscaling share the same queue-depth reader.
 
 ## The Hierarchy
 
@@ -38,4 +38,4 @@ If you are familiar with Laravel Horizon's codebase, you will recognize the inte
 | `Listeners\*` | `listeners/` |
 | `Middlewares` | `middleware.py` |
 
-The primary difference lies in the HTTP routing layer (FastAPI vs Laravel Routing) and the transition from PHP Interfaces/Traits to Python ABCs and Dataclasses. However, the Vue SPA dashboard is the exact same application.
+The primary difference lies in the HTTP routing layer (FastAPI vs Laravel Routing) and the transition from PHP Interfaces/Traits to Python ABCs and Dataclasses. The Vue SPA is adapted from the upstream dashboard.

@@ -60,7 +60,12 @@ class RedisCommandQueue(CommandQueue):
         for raw in results[0]:
             try:
                 data = json.loads(raw)
-                commands.append(data)
+                if (
+                    isinstance(data, dict)
+                    and isinstance(data.get("command"), str)
+                    and isinstance(data.get("options", {}), dict)
+                ):
+                    commands.append(data)
             except (json.JSONDecodeError, TypeError):
                 logger.warning(f"Skipping malformed command: {raw!r}")
 

@@ -9,6 +9,7 @@ Calculates the estimated time to clear each queue based on:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -30,10 +31,12 @@ class WaitTimeCalculator:
         metrics_repo: MetricsRepository,
         queue_length_fetcher: Callable[[str], Awaitable[int]] | None = None,
         supervisor_fetcher: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
+        connection: str = "redis",
     ) -> None:
         self.metrics_repo = metrics_repo
         self.queue_length_fetcher = queue_length_fetcher
         self.supervisor_fetcher = supervisor_fetcher
+        self.connection = connection
 
     async def _get_queue_length(self, queue: str) -> int:
         """Get queue depth via the injected fetcher."""
@@ -41,7 +44,8 @@ class WaitTimeCalculator:
             try:
                 return await self.queue_length_fetcher(queue)
             except Exception:
-                pass
+                logging.getLogger("horizon").exception("Could not inspect queue %s", queue)
+                raise
         return 0
 
     async def _total_processes_for(self, queue: str) -> int:
@@ -73,7 +77,10 @@ class WaitTimeCalculator:
         Matches the upstream wait-time calculation.
         Returns {queue_name: wait_seconds}, sorted descending.
         """
-        queues = await self.metrics_repo.measured_queues()
+        queues = dict.fromkeys(await self.metrics_repo.measured_queues())
+        if self.supervisor_fetcher:
+            for supervisor in await self.supervisor_fetcher():
+                queues.update(dict.fromkeys(supervisor.get("processes", {})))
         wait_times: dict[str, float] = {}
 
         for q in queues:

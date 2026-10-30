@@ -10,6 +10,7 @@ Computes the current workload of each queue by combining:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from redis.asyncio import Redis
@@ -34,10 +35,12 @@ class RedisWorkloadRepository(WorkloadRepository):
         redis: Redis,
         wait_time: WaitTimeCalculator,
         supervisor_repo: RedisSupervisorRepository,
+        queue_length_fetcher: Callable[[str], Awaitable[int]] | None = None,
     ) -> None:
         self.redis = redis
         self.wait_time = wait_time
         self.supervisor_repo = supervisor_repo
+        self.queue_length_fetcher = queue_length_fetcher
 
     async def get(self) -> list[dict[str, Any]]:
         """
@@ -115,7 +118,9 @@ class RedisWorkloadRepository(WorkloadRepository):
         return totals
 
     async def _queue_length(self, queue: str) -> int:
-        """Get the depth of a Redis list queue via LLEN."""
+        """Inspect the configured broker's queue."""
+        if self.queue_length_fetcher is not None:
+            return await self.queue_length_fetcher(queue)
         try:
             return await self.redis.llen(queue)
         except Exception:

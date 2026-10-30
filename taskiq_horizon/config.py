@@ -56,7 +56,7 @@ class HorizonConfig:
     # Wait times thresholds in seconds
     waits: dict = field(default_factory=lambda: {"default": 60})
 
-    # Memory limit for supervisors in megabytes.
+    # Memory limit for the master process in megabytes.
     memory_limit: int = 512
 
     # Environment-specific supervisor mappings (same shape as upstream).
