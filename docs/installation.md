@@ -10,6 +10,8 @@ uv add taskiq-horizon
 
 Compatible Alata and TaskIQ dependencies are installed automatically.
 
+Set `REDIS_URL` in your application's `.env` to a running Redis service. For Redis job queues, also set `QUEUE_CONNECTION=redis`. Database and SQS applications can keep their existing queue connection; Horizon still uses Redis for its dashboard.
+
 ## Configure Horizon
 
 Create `config/horizon.py` (use your application's configuration package if it has another name):
@@ -64,6 +66,8 @@ The provider reads `horizon_config`, attaches job tracking, registers the consol
 ./alata horizon:continue
 ./alata horizon:terminate
 ```
+
+Run your HTTP application separately with `./alata serve` to open the dashboard at `http://127.0.0.1:8000/horizon`. The Horizon command starts workers, not an HTTP server.
 
 Schedule `horizon:snapshot` every five minutes to populate historical charts:
 

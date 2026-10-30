@@ -1,5 +1,5 @@
 site_name: TaskIQ Horizon
-site_description: A beautiful, real-time dashboard and robust configuration system for TaskIQ queues, inspired by Laravel Horizon.
+site_description: Queue monitoring, metrics, and worker management for Alata, powered by TaskIQ.
 repo_name: taskiq-horizon
 repo_url: https://github.com/JoBinsJP/taskiq-horizon
 

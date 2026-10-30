@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "taskiq-horizon"
 version = "0.2.0"
-description = "Laravel Horizon port for Python TaskIQ"
+description = "Queue monitoring and worker management for Alata, powered by TaskIQ"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -26,6 +26,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://jobinsjp.github.io/alata-doc/docs/packages/horizon/"
 Repository = "https://github.com/JoBinsJP/taskiq-horizon"
 Issues = "https://github.com/JoBinsJP/taskiq-horizon/issues"
 

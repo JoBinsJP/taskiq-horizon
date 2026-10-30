@@ -1,6 +1,6 @@
 # Configuration
 
-TaskIQ Horizon's primary configuration object is the `HorizonConfig` class. You instantiate this in your host application and inject it into the `horizon.config` container binding.
+Define `horizon_config` in your application's `config/horizon.py`. The registered `HorizonProvider` loads it automatically. See [Installation](installation.md) for provider registration and environment-specific worker configuration.
 
 ## Full Configuration Example
 
@@ -36,8 +36,8 @@ horizon_config = HorizonConfig(
     silenced=["tasks.heartbeat_job"],
     silenced_tags=["System"],
     # ── Memory Limits ────────────────────────────────────────────────────
-    # The maximum memory (in MB) a supervisor process can consume before
-    # it is gracefully terminated and automatically restarted.
+    # The maximum memory (in MB) the master process can consume before
+    # it shuts down gracefully. Your process manager should restart it.
     memory_limit=512,
     # ── Metrics Snapshot Retention (number of snapshots) ─────────────────────────
     # How many snapshots to keep for each dashboard chart.
@@ -78,4 +78,4 @@ options = SupervisorOptions(
 
 - `max_processes` is a supervisor-wide cap, not a per-queue cap.
 - `min_processes` is the minimum target per queue while balancing. Set `max_processes` to at least the number of queues multiplied by `min_processes`; inconsistent limits are rejected.
-- If you configure more queues than `max_processes`, some queues may temporarily sit at `0` workers until the next rebalance cycle. This is expected and mirrors Laravel Horizon's global-cap behavior.
+- Set `min_processes=0` to allow queues to have no active workers. With `auto` balancing, workers are allocated as workload changes, within the supervisor's total cap.

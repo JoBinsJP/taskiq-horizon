@@ -1,6 +1,6 @@
 # Architecture
 
-TaskIQ Horizon is designed to maintain high functional and structural parity with [Laravel Horizon](https://horizon.laravel.com/). Instead of running isolated TaskIQ worker CLI commands, Horizon introduces a robust, multi-tier process management architecture.
+TaskIQ Horizon manages TaskIQ workers through a master supervisor, queue supervisors, and worker pools. Alata's `HorizonProvider` connects these services to the application's queue broker, console, and HTTP server.
 
 Redis stores dashboard state, metrics, commands, and supervisor heartbeats. Queue inspection uses a broker-specific adapter: Redis lists, Alata's database queue, or SQS. Workload and autoscaling share the same queue-depth reader.
 
@@ -14,7 +14,7 @@ Redis stores dashboard state, metrics, commands, and supervisor heartbeats. Queu
 2. **Supervisors**
     - Directly manage a specific set of queues.
     - Utilize an **Autoscaler** to continuously adjust the number of active worker processes based on the current workload.
-    - When balancing is enabled, create one **ProcessPool** per queue, matching Laravel Horizon's queue-by-queue balancing model.
+    - When balancing is enabled, create one **ProcessPool** per queue.
     - When `balance="false"`, retain a single combined pool for the full comma-separated queue string.
     - Restart individual failed workers.
     
@@ -22,20 +22,18 @@ Redis stores dashboard state, metrics, commands, and supervisor heartbeats. Queu
     - Subprocesses spawned by the Supervisors.
     - These are the standard TaskIQ worker processes that actually execute the jobs.
     
-## Design Parity with Laravel
+## Components
 
-TaskIQ Horizon closely follows Laravel Horizon's internal domain model on the Redis runtime path.
-
-If you are familiar with Laravel Horizon's codebase, you will recognize the internal domain layout:
-
-| Laravel (PHP) Concept | TaskIQ Horizon (Python) Concept |
+| Module | Responsibility |
 |---|---|
-| `MasterSupervisor` | `master_supervisor.py` |
-| `Supervisor` | `supervisor.py` |
-| `ProcessPool` | `process_pool.py` |
-| `Repositories\*` | `repositories/` (e.g., `redis_job_repository.py`) |
-| `EventMap` | `event_map.py` |
-| `Listeners\*` | `listeners/` |
-| `Middlewares` | `middleware.py` |
+| `master_supervisor.py` | Coordinates supervisors, commands, signals, and shutdown. |
+| `supervisor.py` | Manages queue pools and worker allocation. |
+| `process_pool.py` | Starts, monitors, and drains worker processes. |
+| `repositories/` | Stores job history, metrics, tags, and supervisor state. |
+| `event_map.py` and `listeners/` | Connects lifecycle events to metrics, cleanup, and health checks. |
+| `middleware.py` | Tracks queued jobs, execution, retries, and failures. |
+| `alata_provider.py` | Registers services, commands, tracking, and dashboard routes in Alata. |
 
-The primary difference lies in the HTTP routing layer (FastAPI vs Laravel Routing) and the transition from PHP Interfaces/Traits to Python ABCs and Dataclasses. The Vue SPA is adapted from the upstream dashboard.
+## Dashboard
+
+The FastAPI routes serve the dashboard API and a bundled Vue application. The Vue dashboard is adapted from [Laravel Horizon](https://github.com/laravel/horizon).

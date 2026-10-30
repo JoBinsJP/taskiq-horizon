@@ -1,22 +1,18 @@
 # Dashboard
 
-TaskIQ Horizon includes a beautiful Vue.js Single Page Application to monitor your queues.
+TaskIQ Horizon includes a web dashboard for queue activity, worker status, and job failures.
 
 ## Accessing the Dashboard
 
-If you have mounted the dashboard to your ASGI application (like FastAPI) using the `mount_dashboard(app)` function, it will by default be accessible at:
+Register `HorizonProvider` as described in [Installation](installation.md), start `./alata horizon`, and run your HTTP application in another terminal with `./alata serve`. The provider serves the dashboard at `/horizon` by default:
 
 ```
-http://your-app-domain.local/horizon
+http://127.0.0.1:8000/horizon
 ```
 
 ## Security
 
-TaskIQ Horizon does NOT include built-in authorization middleware — the dashboard is a standard set of `/horizon` routes attached to your ASGI application.
-
-It is **highly recommended** that you protect these routes in production environments. 
-
-In a FastAPI application, you can secure the dashboard by applying a `dependencies` array indicating authentication requirements when including the API Router, or by utilizing standard authentication middleware that protects requests targeting paths prefixed with `/horizon`.
+Horizon does not add an access policy automatically. Protect `/horizon` and every path beneath it, including `/horizon/api/*`, with application authorization middleware or an authenticated reverse proxy. Restrict access to operators who may inspect job payloads and retry or clear jobs. If you configure a different path or proxy prefix, protect those public URLs too.
 
 ## Available Metrics
 
@@ -24,5 +20,9 @@ The dashboard natively reveals:
 
 - **Dashboard / Status Overview:** Realtime throughput (jobs/min), current queue capacities, max wait times.
 - **Monitoring:** Tag jobs (e.g. `User:123`) inside your tasks manually or dynamically through middleware, and monitor the subset of tasks connected to that tag.
-- **Metrics:** Line charts mapping throughput and latency history per job type or queue over the standard rolling 24-hour cycle.
+- **Metrics:** Throughput and runtime charts per job type and queue, built from periodic snapshots.
 - **Pending/Completed/Failed jobs:** Inspect detailed stack traces, exceptions, and payloads for failed jobs, and easily click to "Retry" them.
+
+## Metrics history
+
+Schedule `horizon:snapshot` every five minutes as described in [Installation](installation.md#run-horizon). The default retention is 24 snapshots per job and queue, covering roughly two hours at that interval. Set `metrics.trim_snapshots.job` and `.queue` to `288` for a full day of history.
