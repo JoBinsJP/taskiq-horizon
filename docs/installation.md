@@ -1,12 +1,14 @@
 # Installation
 
-Horizon supports Alata 0.12.0.1 or later in the 0.12 series with TaskIQ 0.13.x on Python 3.12–3.14. Its process manager runs on Linux and macOS. Redis stores dashboard history, metrics, and supervisor commands; jobs may use Redis, the database queue, or SQS.
+Horizon requires Python 3.12 or later. Its process manager runs on Linux and macOS. Redis stores dashboard history, metrics, and supervisor commands; jobs may use Redis, the database queue, or SQS.
 
-The compatibility update and its Alata patch are unreleased. Install both updated checkouts into your Alata application:
+Install Horizon from PyPI into your Alata application:
 
 ```bash
-uv add --editable ../alata-core ../taskiq-horizon
+uv add taskiq-horizon
 ```
+
+Compatible Alata and TaskIQ dependencies are installed automatically.
 
 ## Configure Horizon
 

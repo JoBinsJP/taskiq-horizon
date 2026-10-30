@@ -50,7 +50,11 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 cover/
+
+# Frontend dependencies are installed from package-lock.json.
+node_modules/
 
 # Environments
 .env

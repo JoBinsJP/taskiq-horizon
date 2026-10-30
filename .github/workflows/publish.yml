@@ -1,0 +1,83 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  # Manual runs validate the release without uploading it to PyPI.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Check release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+          assert project["name"] == "taskiq-horizon", "Unexpected PyPI project name"
+          if os.environ["GITHUB_EVENT_NAME"] == "release":
+              expected = f"v{project['version']}"
+              assert os.environ["RELEASE_TAG"] == expected, f"Release tag must be {expected}"
+          print(f"Building {project['name']} {project['version']}")
+          PY
+      - run: uv build
+      - run: uvx twine check --strict dist/*
+      - name: Verify the installed wheel and dashboard assets
+        run: |
+          uv venv "$RUNNER_TEMP/horizon-wheel"
+          uv pip install --python "$RUNNER_TEMP/horizon-wheel/bin/python" dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/horizon-wheel/bin/python" - <<'PY'
+          from importlib.resources import files
+
+          from taskiq_horizon.alata_provider import HorizonProvider
+
+          assert HorizonProvider.__name__ == "HorizonProvider"
+          dashboard = files("taskiq_horizon").joinpath("dashboard/dist")
+          for path in ("app.js", "app.css", "styles.css", "styles-dark.css",
+                       "fonts/figtree-latin-400-normal.woff2"):
+              assert dashboard.joinpath(path).is_file(), f"Missing dashboard asset: {path}"
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'release'
+    needs: [tests, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/taskiq-horizon
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

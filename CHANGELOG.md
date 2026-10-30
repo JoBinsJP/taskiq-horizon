@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
 ### Added
 
+- Public PyPI distribution with bundled dashboard assets and GitHub Trusted
+  Publishing, gated by the compatibility suite and installed-wheel checks.
 - Verified Alata `ShouldQueue` jobs through Horizon-managed workers, including
   automatic package discovery, class names in history, and retries. Alata setup
   examples now use shared queue discovery without worker filename patterns.
@@ -18,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Source distributions exclude frontend dependencies and local tool caches;
+  wheels include the compiled dashboard and fonts.
+- Compatibility CI installs the released Alata package from PyPI, avoiding a
+  cross-repository checkout that requires access to the private core repository.
 - Remote pause, continue, and terminate commands now reach the master. Termination exits the full process tree so a process manager can restart it; dashboard status follows the requested state.
 - Pausing drains current jobs and stops intake. Worker shutdown and memory accounting include TaskIQ child processes, and replacements wait for draining workers to release capacity.
 - Crashed supervisor loops clean up their workers and stop the master. Shared configuration is no longer mutated when creating supervisors.

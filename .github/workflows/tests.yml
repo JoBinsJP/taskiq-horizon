@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -53,16 +54,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: horizon
-      - uses: actions/checkout@v4
-        with:
-          repository: JoBinsJP/alata-core
-          # Test the coordinated core changes before their release is tagged.
-          ref: main
-          path: alata-core
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -e './alata-core[sqlite,mysql]' -e './horizon[dev]' '${{ matrix.taskiq }}'
+      - run: python -m pip install 'alata[sqlite,mysql]>=0.12.0.1,<0.13' -e './horizon[dev]' '${{ matrix.taskiq }}'
       - run: python -m pip check
       - run: python -m ruff check taskiq_horizon tests
         working-directory: horizon

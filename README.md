@@ -22,21 +22,23 @@ mkdocs serve
 
 ## Quick Installation
 
-Requires Alata 0.12.0.1 or later in the 0.12 series, TaskIQ 0.13.x, and Python 3.12–3.14. The process manager supports Linux and macOS.
+Requires Python 3.12 or later. The process manager supports Linux and macOS.
 
-This compatibility update and its Alata patch are unreleased. From your Alata application, install both updated checkouts:
+From your Alata application, install Horizon from PyPI:
 
 ```bash
-uv add --editable ../alata-core ../taskiq-horizon
+uv add taskiq-horizon
 ```
+
+Compatible Alata and TaskIQ dependencies are installed automatically.
 
 Follow [Installation](docs/installation.md) to configure and register `HorizonProvider`, then run `./alata horizon`.
 
-For package development with sibling checkouts:
+For package development:
 
 ```bash
 uv venv
-uv pip install -e '../alata-core[sqlite,mysql]' -e '.[dev]'
+uv pip install 'alata[sqlite,mysql]' -e '.[dev]'
 .venv/bin/python -m pytest -q
 ```
 
